@@ -221,7 +221,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/fov.js"></script>
+<script src="{{ request.url_for('static', path='js/fov.js') }}"></script>
 <script>
     // Load Aladin Lite via classic script loading to avoid CORS issues with ES modules
     (function() {
