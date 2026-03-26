@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Oasis AstroTools — Inicio{% endblock %}
+
+{% block content %}
+<!-- Hero section -->
+<section class="hero-section text-center">
+    <div class="hero-stars"></div>
+    <h1 class="hero-title">
+        <i class="bi bi-stars"></i> Oasis <span class="brand-accent">AstroTools</span>
+    </h1>
+    <p class="hero-subtitle">
+        Herramientas de planificación de observaciones astronómicas para el proyecto Oasis.
+        <br>Prepara tus sesiones con telescopios robóticos de forma sencilla e interactiva.
+    </p>
+</section>
+
+<!-- Tool cards -->
+<section class="tools-grid">
+    <!-- SNR Calculator -->
+    <a href="/snr" class="tool-card-link">
+        <div class="tool-card">
+            <div class="tool-card-icon">
+                <i class="bi bi-graph-up"></i>
+            </div>
+            <h2 class="tool-card-title">Calculadora SNR / Exposición</h2>
+            <p class="tool-card-desc">
+                Calcula la <strong>relación señal-ruido</strong> esperada para tus observaciones,
+                o determina el <strong>tiempo de exposición</strong> óptimo para alcanzar un SNR objetivo.
+                Ajusta parámetros de cámara, telescopio, filtros y condiciones atmosféricas.
+            </p>
+            <div class="tool-card-tags">
+                <span class="tag">SNR</span>
+                <span class="tag">Exposición</span>
+                <span class="tag">CCD</span>
+                <span class="tag">Ruido</span>
+            </div>
+            <div class="tool-card-cta">
+                Abrir herramienta <i class="bi bi-arrow-right"></i>
+            </div>
+        </div>
+    </a>
+
+    <!-- FOV Calculator -->
+    <a href="/fov" class="tool-card-link">
+        <div class="tool-card">
+            <div class="tool-card-icon">
+                <i class="bi bi-aspect-ratio"></i>
+            </div>
+            <h2 class="tool-card-title">Calculadora de Campo de Visión</h2>
+            <p class="tool-card-desc">
+                Visualiza el <strong>campo de visión</strong> de tu telescopio y cámara
+                sobre imágenes reales del cielo. Selecciona objetos del catálogo Messier,
+                NGC o del sistema solar y comprueba cómo encajan en tu sensor.
+            </p>
+            <div class="tool-card-tags">
+                <span class="tag">FOV</span>
+                <span class="tag">Encuadre</span>
+                <span class="tag">Aladin</span>
+                <span class="tag">Catálogos</span>
+            </div>
+            <div class="tool-card-cta">
+                Abrir herramienta <i class="bi bi-arrow-right"></i>
+            </div>
+        </div>
+    </a>
+</section>
+
+<!-- About section -->
+<section class="about-section text-center mt-5">
+    <p class="text-secondary">
+        <i class="bi bi-telescope"></i>
+        Proyecto Oasis — Introduciendo a adolescentes en la astronomía observacional con telescopios robóticos.
+    </p>
+</section>
+{% endblock %}

@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}Campo de Visión — Oasis AstroTools{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.min.css" />
+{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1><i class="bi bi-aspect-ratio"></i> Calculadora de Campo de Visión (FOV)</h1>
+    <p class="tool-intro">
+        Visualiza el campo de visión de tu telescopio sobre imágenes reales del cielo.
+        Selecciona un objeto, configura tu equipo y comprueba cómo encaja en tu sensor o en el ocular.
+    </p>
+</div>
+
+<div class="tool-layout">
+    <!-- Target & Mode -->
+    <div class="param-tabs mb-3">
+        <ul class="nav nav-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-fov-target" type="button" role="tab"><i class="bi bi-crosshair me-1"></i>Objetivo</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-fov-telescope" type="button" role="tab"><i class="bi bi-binoculars me-1"></i>Telescopio</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-fov-detector" type="button" role="tab"><i class="bi bi-camera me-1"></i>Detector</button>
+            </li>
+        </ul>
+        <div class="tab-content">
+            <!-- Target tab -->
+            <div class="tab-pane fade show active" id="tab-fov-target" role="tabpanel">
+                <div class="params-grid">
+                    <div class="param-input">
+                        <label for="catalogType">Catálogo</label>
+                        <select id="catalogType">
+                            <option value="messier" selected>Messier</option>
+                            <option value="ngc">NGC</option>
+                            <option value="solar-system">Sistema Solar</option>
+                        </select>
+                    </div>
+                    <div class="param-input">
+                        <label for="targetSelect">Objeto</label>
+                        <select id="targetSelect">
+                            <option value="M42">M42 — Gran Nebulosa de Orión</option>
+                        </select>
+                    </div>
+                    <div class="param-input full-width">
+                        <label for="customTarget">O escribe un nombre</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" id="customTarget" class="form-control" placeholder="Ej: NGC 7000">
+                            <button class="btn btn-outline-secondary" type="button" id="goToCustomTarget">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Telescope tab -->
+            <div class="tab-pane fade" id="tab-fov-telescope" role="tabpanel">
+                <div class="params-grid">
+                    <div class="param-input">
+                        <label for="fovFocalLength">
+                            <span class="param-label-text" data-concept="focal-length">Distancia focal</span>
+                            <span class="unit">(mm)</span>
+                        </label>
+                        <input type="number" id="fovFocalLength" value="1000" min="10" max="20000" step="1">
+                    </div>
+                    <div class="param-input">
+                        <label for="fovDiameter">
+                            <span class="param-label-text" data-concept="diameter">Apertura</span>
+                            <span class="unit">(mm)</span>
+                        </label>
+                        <input type="number" id="fovDiameter" value="200" min="10" max="10000" step="1">
+                    </div>
+                    <div class="param-input full-width">
+                        <label for="fieldRotation">Ángulo de rotación <span class="unit">(°)</span></label>
+                        <input type="range" id="fieldRotation" value="0" min="0" max="360" step="1">
+                        <span class="range-value" id="fieldRotationValue">0°</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detector tab -->
+            <div class="tab-pane fade" id="tab-fov-detector" role="tabpanel">
+                <!-- Camera / Eyepiece mode toggle -->
+                <div class="mode-toggle fov-mode-toggle mb-3" id="fovModeToggle">
+                    <button class="mode-btn active" data-mode="camera">
+                        <i class="bi bi-camera"></i> Cámara
+                    </button>
+                    <button class="mode-btn" data-mode="eyepiece">
+                        <i class="bi bi-eye"></i> Ocular
+                    </button>
+                </div>
+
+                <!-- Camera params -->
+                <div id="cameraParamsGroup">
+                    <div class="params-grid">
+                        <div class="param-input">
+                            <label for="fovPixelSize">
+                                <span class="param-label-text" data-concept="pixel-size">Tamaño de píxel</span>
+                                <span class="unit">(μm)</span>
+                            </label>
+                            <input type="number" id="fovPixelSize" value="3.76" min="0.5" max="50" step="0.01">
+                        </div>
+                        <div class="param-input">
+                            <label for="fovBinning">Binning</label>
+                            <select id="fovBinning">
+                                <option value="1" selected>1×1</option>
+                                <option value="2">2×2</option>
+                                <option value="3">3×3</option>
+                                <option value="4">4×4</option>
+                            </select>
+                        </div>
+                        <div class="param-input">
+                            <label for="sensorWidth">
+                                <span class="param-label-text" data-concept="sensor-size">Ancho del sensor</span>
+                                <span class="unit">(px)</span>
+                            </label>
+                            <input type="number" id="sensorWidth" value="4656" min="1" max="100000" step="1">
+                        </div>
+                        <div class="param-input">
+                            <label for="sensorHeight">Alto del sensor <span class="unit">(px)</span></label>
+                            <input type="number" id="sensorHeight" value="3520" min="1" max="100000" step="1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Eyepiece params (hidden by default) -->
+                <div id="eyepieceParamsGroup" style="display:none;">
+                    <div class="params-grid">
+                        <div class="param-input">
+                            <label for="eyepieceFocal">
+                                <span class="param-label-text" data-concept="eyepiece-focal">Distancia focal</span>
+                                <span class="unit">(mm)</span>
+                            </label>
+                            <input type="number" id="eyepieceFocal" value="25" min="1" max="100" step="0.5">
+                        </div>
+                        <div class="param-input">
+                            <label for="eyepieceAFOV">
+                                <span class="param-label-text" data-concept="afov">AFOV</span>
+                                <span class="unit">(°)</span>
+                            </label>
+                            <input type="number" id="eyepieceAFOV" value="52" min="10" max="120" step="1">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calculate -->
+    <button class="btn-calculate w-100 mb-3" id="fovCalculateBtn">
+        <i class="bi bi-aspect-ratio"></i> Calcular y mostrar FOV
+    </button>
+
+    <!-- FOV results -->
+    <div class="results-panel fov-results mb-3" id="fovResults" style="display:none;">
+        <h5><i class="bi bi-table"></i> Resultados</h5>
+        <div class="results-table">
+            <table class="table table-sm">
+                <tbody id="fovResultsBody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Sky view -->
+    <div class="sky-view-container mb-3">
+        <div class="sky-view-header">
+            <span id="skyViewTarget">M42 — Gran Nebulosa de Orión</span>
+            <div class="sky-view-controls">
+                <select id="surveySelect" class="form-select form-select-sm">
+                    <option value="P/DSS2/color" selected>DSS2 Color</option>
+                    <option value="P/DSS2/red">DSS2 Rojo</option>
+                    <option value="P/2MASS/color">2MASS Color</option>
+                    <option value="P/SDSS9/color">SDSS9 Color</option>
+                    <option value="P/allWISE/color">AllWISE Color</option>
+                </select>
+            </div>
+        </div>
+        <div id="aladin-lite-div" class="aladin-container"></div>
+        <div class="sky-view-footer">
+            <span class="text-secondary small">
+                <i class="bi bi-info-circle"></i>
+                Arrastra para mover · Rueda para zoom · Imágenes de
+                <a href="https://aladin.cds.unistra.fr/" target="_blank" rel="noopener">Aladin Lite / CDS</a>
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- Theory section at bottom -->
+<div class="theory-section">
+    <h2><i class="bi bi-book"></i> Fundamentos teóricos</h2>
+    <div class="theory-cards">
+        <div class="theory-card">
+            <h5><i class="bi bi-lightbulb"></i> ¿Qué es el campo de visión?</h5>
+            <p>El <strong>campo de visión</strong> (FOV) es el área del cielo visible a través de tu telescopio. Depende de la distancia focal y del tamaño del detector.</p>
+            <div class="theory-box">
+                <p><strong>Cámara:</strong></p>
+                <p>$$\text{FOV} = \frac{d_{\text{sensor}}}{f} \times 57.3°$$</p>
+                <p class="text-secondary small mb-2">$d_{\text{sensor}}$ = tamaño físico del sensor, $f$ = distancia focal.</p>
+                <p><strong>Ocular:</strong></p>
+                <p>$$\text{FOV}_{\text{real}} = \frac{\text{AFOV}}{M} \quad,\quad M = \frac{f_{\text{telescopio}}}{f_{\text{ocular}}}$$</p>
+            </div>
+        </div>
+        <div class="theory-card">
+            <h5><i class="bi bi-grid-3x3"></i> Escala de placa y muestreo</h5>
+            <p>La <strong>escala de placa</strong> define cuántos segundos de arco cubre cada píxel:</p>
+            <div class="theory-box">
+                <p>$$\text{Escala de placa} = \frac{p}{f} \times 206.265 \;\text{arcsec/px}$$</p>
+                <p class="text-secondary small mb-0">$p$ = tamaño de píxel (μm), $f$ = distancia focal (mm).</p>
+            </div>
+            <p class="mt-2">La regla de <strong>Nyquist</strong> recomienda que cada estrella (FWHM del seeing) cubra al menos <strong>2 píxeles</strong> para un muestreo correcto.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/fov.js"></script>
+<script>
+    // Load Aladin Lite via classic script loading to avoid CORS issues with ES modules
+    (function() {
+        var script = document.createElement('script');
+        script.src = 'https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js';
+        script.onload = function() {
+            var A = window.A;
+            A.init.then(function() {
+                var aladin = A.aladin('#aladin-lite-div', {
+                    survey: 'P/DSS2/color',
+                    fov: 1.0,
+                    target: 'M42',
+                    showCooGridControl: true,
+                    showSimbadPointerControl: true,
+                    showCooGrid: false,
+                });
+                window.aladinInstance = aladin;
+                window.AladinLib = A;
+                if (window.initFOVTool) {
+                    window.initFOVTool(A, aladin);
+                }
+            });
+        };
+        document.head.appendChild(script);
+    })();
+</script>
+{% endblock %}

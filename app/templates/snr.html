@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+{% block title %}Calculadora SNR — Oasis AstroTools{% endblock %}
+
+{% block content %}
+<div class="tool-header">
+    <h1><i class="bi bi-graph-up"></i> Calculadora de Señal-Ruido (SNR)</h1>
+    <p class="tool-intro">
+        Calcula la relación señal-ruido esperada para tu configuración de telescopio y cámara,
+        y usa el planificador de exposición para encontrar el tiempo óptimo.
+    </p>
+</div>
+
+<div class="tool-layout">
+    <!-- Parameter tabs panel -->
+    <div class="param-tabs mb-3">
+        <ul class="nav nav-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-camera" type="button" role="tab"><i class="bi bi-camera me-1"></i>Cámara</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-telescope" type="button" role="tab"><i class="bi bi-binoculars me-1"></i>Telescopio</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-filter" type="button" role="tab"><i class="bi bi-funnel me-1"></i>Filtro</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-observation" type="button" role="tab"><i class="bi bi-star me-1"></i>Observación</button>
+            </li>
+        </ul>
+        <div class="tab-content">
+            <!-- Camera tab -->
+            <div class="tab-pane fade show active" id="tab-camera" role="tabpanel">
+                <div class="params-grid">
+                    <div class="param-input">
+                        <label for="pixelSize">
+                            <span class="param-label-text" data-concept="pixel-size">Tamaño de píxel</span>
+                            <span class="unit">(μm)</span>
+                        </label>
+                        <input type="number" id="pixelSize" value="3.76" min="0.5" max="50" step="0.01">
+                    </div>
+                    <div class="param-input">
+                        <label for="binning">
+                            <span class="param-label-text" data-concept="binning">Binning</span>
+                        </label>
+                        <select id="binning">
+                            <option value="1" selected>1×1</option>
+                            <option value="2">2×2</option>
+                            <option value="3">3×3</option>
+                            <option value="4">4×4</option>
+                        </select>
+                    </div>
+                    <div class="param-input">
+                        <label for="readoutNoise">
+                            <span class="param-label-text" data-concept="readout-noise">Ruido de lectura</span>
+                            <span class="unit">(e⁻)</span>
+                        </label>
+                        <input type="number" id="readoutNoise" value="6.0" min="0" max="100" step="0.1">
+                    </div>
+                    <div class="param-input">
+                        <label for="gain">
+                            <span class="param-label-text" data-concept="gain">Ganancia</span>
+                            <span class="unit">(e⁻/ADU)</span>
+                        </label>
+                        <input type="number" id="gain" value="1.0" min="0.01" max="100" step="0.01">
+                    </div>
+                    <div class="param-input">
+                        <label for="temperature">
+                            <span class="param-label-text" data-concept="temperature">Temperatura</span>
+                            <span class="unit">(°C)</span>
+                        </label>
+                        <input type="number" id="temperature" value="-10" min="-50" max="50" step="1">
+                    </div>
+                    <div class="param-input">
+                        <label for="tRef">
+                            <span class="param-label-text" data-concept="t-ref">T referencia</span>
+                            <span class="unit">(°C)</span>
+                        </label>
+                        <input type="number" id="tRef" value="20" min="-50" max="50" step="1">
+                    </div>
+                    <div class="param-input full-width">
+                        <label for="darkCurrent">
+                            <span class="param-label-text" data-concept="dark-current">Corriente oscura</span>
+                            <span class="unit">(e⁻/s/px)</span>
+                        </label>
+                        <input type="number" id="darkCurrent" value="0.1" min="0" max="100" step="0.001">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Telescope tab -->
+            <div class="tab-pane fade" id="tab-telescope" role="tabpanel">
+                <div class="params-grid">
+                    <div class="param-input">
+                        <label for="focalLength">
+                            <span class="param-label-text" data-concept="focal-length">Distancia focal</span>
+                            <span class="unit">(mm)</span>
+                        </label>
+                        <input type="number" id="focalLength" value="1000" min="10" max="20000" step="1">
+                    </div>
+                    <div class="param-input">
+                        <label for="diameter">
+                            <span class="param-label-text" data-concept="diameter">Diámetro primario</span>
+                            <span class="unit">(mm)</span>
+                        </label>
+                        <input type="number" id="diameter" value="200" min="10" max="10000" step="1">
+                    </div>
+                    <div class="param-input">
+                        <label for="secondaryDiameter">
+                            <span class="param-label-text" data-concept="secondary">Diámetro secundario</span>
+                            <span class="unit">(mm)</span>
+                        </label>
+                        <input type="number" id="secondaryDiameter" value="70" min="0" max="5000" step="1">
+                    </div>
+                    <div class="param-input">
+                        <label for="opticalEfficiency">
+                            <span class="param-label-text" data-concept="optical-efficiency">Eficiencia óptica</span>
+                        </label>
+                        <input type="range" id="opticalEfficiency" value="0.85" min="0.1" max="1" step="0.01">
+                        <span class="range-value" id="opticalEfficiencyValue">85%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filter tab -->
+            <div class="tab-pane fade" id="tab-filter" role="tabpanel">
+                <div class="params-grid">
+                    <div class="param-input">
+                        <label for="filterBand">
+                            <span class="param-label-text" data-concept="filter">Filtro</span>
+                        </label>
+                        <select id="filterBand">
+                            <option value="U">U (Ultravioleta)</option>
+                            <option value="B">B (Azul)</option>
+                            <option value="V" selected>V (Visual)</option>
+                            <option value="R">R (Rojo)</option>
+                            <option value="I">I (Infrarrojo)</option>
+                            <option value="L">L (Luminancia)</option>
+                            <option value="Ha">Hα (Hidrógeno alfa)</option>
+                            <option value="OIII">[O III]</option>
+                            <option value="SII">[S II]</option>
+                        </select>
+                    </div>
+                    <div class="param-input">
+                        <label for="qe">
+                            <span class="param-label-text" data-concept="qe">Eficiencia cuántica</span>
+                        </label>
+                        <input type="range" id="qe" value="0.80" min="0.05" max="1" step="0.01">
+                        <span class="range-value" id="qeValue">80%</span>
+                    </div>
+                    <div class="param-input">
+                        <label for="extinction">
+                            <span class="param-label-text" data-concept="extinction">Extinción</span>
+                            <span class="unit">(mag/airmass)</span>
+                        </label>
+                        <input type="number" id="extinction" value="" placeholder="auto" min="0" max="5" step="0.01">
+                    </div>
+                    <div class="param-input">
+                        <label for="airmass">
+                            <span class="param-label-text" data-concept="airmass">Masa de aire</span>
+                        </label>
+                        <input type="number" id="airmass" value="1.2" min="1" max="10" step="0.01">
+                    </div>
+                    <div class="param-input full-width">
+                        <label for="skyBrightness">
+                            <span class="param-label-text" data-concept="sky-brightness">Brillo del cielo</span>
+                            <span class="unit">(mag/arcsec²)</span>
+                        </label>
+                        <input type="number" id="skyBrightness" value="" placeholder="auto" min="10" max="25" step="0.1">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Observation tab -->
+            <div class="tab-pane fade" id="tab-observation" role="tabpanel">
+                <div class="params-grid">
+                    <div class="param-input">
+                        <label for="objectMagnitude">
+                            <span class="param-label-text" data-concept="magnitude">Magnitud del objeto</span>
+                        </label>
+                        <input type="number" id="objectMagnitude" value="10.0" min="-30" max="30" step="0.1">
+                    </div>
+                    <div class="param-input" id="exposureTimeGroup">
+                        <label for="exposureTime">
+                            <span class="param-label-text" data-concept="exposure-time">Tiempo de exposición</span>
+                            <span class="unit">(s)</span>
+                        </label>
+                        <input type="number" id="exposureTime" value="60" min="0.001" max="86400" step="1">
+                    </div>
+                    <div class="param-input">
+                        <label for="nExposures">
+                            <span class="param-label-text" data-concept="n-exposures">Nº de exposiciones</span>
+                        </label>
+                        <input type="number" id="nExposures" value="1" min="1" max="10000" step="1">
+                    </div>
+                    <div class="param-input">
+                        <label for="seeing">
+                            <span class="param-label-text" data-concept="seeing">Seeing</span>
+                            <span class="unit">(arcsec)</span>
+                        </label>
+                        <input type="number" id="seeing" value="2.5" min="0.1" max="20" step="0.1">
+                    </div>
+                    <div class="param-input full-width">
+                        <label for="apertureRadius">
+                            <span class="param-label-text" data-concept="aperture">Radio de apertura</span>
+                            <span class="unit">(arcsec)</span>
+                        </label>
+                        <input type="number" id="apertureRadius" value="5.0" min="0.1" max="100" step="0.1">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calculate button -->
+    <button class="btn-calculate w-100 mb-4" id="calculateBtn">
+        <i class="bi bi-calculator"></i> Calcular SNR
+    </button>
+
+    <!-- Results panel -->
+    <div class="results-panel" id="resultsPanel">
+        <!-- Main result -->
+        <div class="snr-display" id="snrDisplay">
+            <div class="snr-main-value">
+                <span class="snr-number" id="snrValue">—</span>
+                <span class="snr-label" id="snrLabel">SNR</span>
+            </div>
+            <div class="snr-secondary" id="snrSecondary" style="display:none;">
+                <span id="snrSecondaryText"></span>
+            </div>
+        </div>
+
+        <div class="row g-3 mt-2">
+            <!-- Noise breakdown chart -->
+            <div class="col-md-5">
+                <div class="chart-container">
+                    <h5><i class="bi bi-pie-chart"></i> Desglose de ruido</h5>
+                    <div class="chart-wrapper">
+                        <canvas id="noiseChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed results -->
+            <div class="col-md-7">
+                <div class="results-details" id="resultsDetails" style="display:none;">
+                    <h5><i class="bi bi-table"></i> Resultados detallados</h5>
+                    <div class="results-table">
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr><td>Señal total</td><td id="resSignal">—</td><td>e⁻</td></tr>
+                                <tr><td>Ruido fotónico</td><td id="resNoiseSource">—</td><td>e⁻</td></tr>
+                                <tr><td>Ruido de cielo</td><td id="resNoiseSky">—</td><td>e⁻</td></tr>
+                                <tr><td>Ruido oscuro</td><td id="resNoiseDark">—</td><td>e⁻</td></tr>
+                                <tr><td>Ruido de lectura</td><td id="resNoiseRead">—</td><td>e⁻</td></tr>
+                                <tr><td>Ruido total</td><td id="resNoiseTotal">—</td><td>e⁻</td></tr>
+                                <tr class="table-divider"><td colspan="3"></td></tr>
+                                <tr><td>Escala de placa</td><td id="resPlateScale">—</td><td>″/px</td></tr>
+                                <tr><td>Píxeles en apertura</td><td id="resNPix">—</td><td></td></tr>
+                                <tr><td>Fracción PSF capturada</td><td id="resFAperture">—</td><td></td></tr>
+                                <tr><td>Tasa de señal</td><td id="resSourceRate">—</td><td>e⁻/s</td></tr>
+                                <tr><td>Tasa cielo/pixel</td><td id="resSkyRate">—</td><td>e⁻/s/px</td></tr>
+                                <tr><td>Dark current efectiva</td><td id="resDarkCurrent">—</td><td>e⁻/s/px</td></tr>
+                                <tr><td>Área colectora</td><td id="resArea">—</td><td>cm²</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Exposure Time Toolkit -->
+        <div class="exposure-toolkit" id="exposureToolkit" style="display:none;">
+            <h5><i class="bi bi-clock-history"></i> Planificador de exposición</h5>
+            <p class="text-secondary small mb-3">Ajusta los parámetros para encontrar el tiempo de exposición necesario.</p>
+
+            <div class="toolkit-controls">
+                <div class="toolkit-control">
+                    <label for="toolkitSNR">
+                        <span>SNR objetivo</span>
+                        <span class="toolkit-value" id="toolkitSNRValue">10</span>
+                    </label>
+                    <input type="range" id="toolkitSNR" value="10" min="3" max="500" step="1" class="toolkit-slider">
+                    <div class="toolkit-range-labels">
+                        <span>3</span>
+                        <span class="text-secondary">detección</span>
+                        <span class="text-secondary">fotometría</span>
+                        <span>500</span>
+                    </div>
+                </div>
+
+                <div class="toolkit-control">
+                    <label for="toolkitNExp">
+                        <span>Nº de exposiciones</span>
+                        <span class="toolkit-value" id="toolkitNExpValue">1</span>
+                    </label>
+                    <input type="range" id="toolkitNExp" value="1" min="1" max="200" step="1" class="toolkit-slider">
+                    <div class="toolkit-range-labels">
+                        <span>1</span>
+                        <span></span>
+                        <span></span>
+                        <span>200</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolkit-result" id="toolkitResult">
+                <div class="toolkit-result-row">
+                    <div class="toolkit-result-item">
+                        <span class="toolkit-result-label">Exposición por toma</span>
+                        <span class="toolkit-result-value" id="toolkitExpTime">—</span>
+                    </div>
+                    <div class="toolkit-result-item">
+                        <span class="toolkit-result-label">Integración total</span>
+                        <span class="toolkit-result-value" id="toolkitTotalTime">—</span>
+                    </div>
+                </div>
+                <div class="toolkit-snr-bar mt-2" id="toolkitSNRBar" style="display:none;">
+                    <div class="toolkit-bar-track">
+                        <div class="toolkit-bar-fill" id="toolkitBarFill" style="width:0%"></div>
+                        <div class="toolkit-bar-markers">
+                            <span class="toolkit-bar-marker" style="left:1%">3</span>
+                            <span class="toolkit-bar-marker" style="left:14%">10</span>
+                            <span class="toolkit-bar-marker" style="left:56%">50</span>
+                            <span class="toolkit-bar-marker" style="left:100%">100+</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Theory section at bottom -->
+<div class="theory-section">
+    <h2><i class="bi bi-book"></i> Fundamentos teóricos</h2>
+
+    <div class="theory-block">
+        <h5><i class="bi bi-lightbulb"></i> ¿Qué es la relación señal-ruido?</h5>
+        <p>La <strong>SNR</strong> (Signal-to-Noise Ratio) mide cuánto destaca la señal de un objeto astronómico por encima del ruido. Un SNR de 10 significa que la señal es 10 veces mayor que el ruido.</p>
+        <div class="theory-box">
+            <p>$$\text{SNR} = \frac{S}{\sqrt{S + n_{\text{pix}} \cdot (B_{\text{sky}} + D + R_N^2)}}$$</p>
+            <p class="text-secondary small mb-0">$S$ = señal, $n_{\text{pix}}$ = píxeles en apertura, $B_{\text{sky}}$ = fondo de cielo, $D$ = corriente oscura, $R_N$ = ruido de lectura.</p>
+        </div>
+        <p class="mt-3"><strong>Valores de referencia:</strong></p>
+        <ul>
+            <li><strong>SNR ≈ 3–5:</strong> detección marginal</li>
+            <li><strong>SNR ≈ 10:</strong> detección fiable</li>
+            <li><strong>SNR ≈ 50–100:</strong> fotometría precisa</li>
+            <li><strong>SNR > 100:</strong> espectroscopía de alta resolución</li>
+        </ul>
+    </div>
+
+    <div class="theory-block">
+        <h5><i class="bi bi-soundwave"></i> Fuentes de ruido</h5>
+        <div class="row g-2">
+            <div class="col-md-6">
+                <div class="noise-card">
+                    <h5><i class="bi bi-brightness-high"></i> Fotónico</h5>
+                    <p>Fluctuación estadística inherente a la naturaleza cuántica de la luz. Sigue una distribución de Poisson: $\sigma = \sqrt{N}$.</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="noise-card">
+                    <h5><i class="bi bi-cloud-moon"></i> Cielo</h5>
+                    <p>Contaminación lumínica, airglow, luz zodiacal. Se mide en mag/arcsec². Cielo más brillante = más ruido.</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="noise-card">
+                    <h5><i class="bi bi-thermometer-half"></i> Dark</h5>
+                    <p>Electrones térmicos generados en el sensor. Se duplica cada ~5.8 °C. Se reduce enfriando la cámara.</p>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="noise-card">
+                    <h5><i class="bi bi-cpu"></i> Lectura</h5>
+                    <p>Ruido electrónico constante al leer cada píxel del sensor. Independiente del tiempo de exposición.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="theory-block">
+        <h5><i class="bi bi-clock-history"></i> Tiempo de exposición</h5>
+        <p>El <strong>planificador de exposición</strong> resuelve la ecuación CCD despejando el tiempo $t$ para un SNR objetivo:</p>
+        <div class="theory-box">
+            <p>$$(s \cdot f)^2 \cdot t^2 - \text{SNR}^2 \cdot (s \cdot f + n_{\text{pix}} \cdot (B + D)) \cdot t - \text{SNR}^2 \cdot n_{\text{pix}} \cdot R_N^2 = 0$$</p>
+            <p class="text-secondary small mb-0">Se resuelve como una ecuación cuadrática en $t$, tomando la raíz positiva.</p>
+        </div>
+        <p class="mt-3">Cuando se apilan $N$ exposiciones, el SNR total escala como:</p>
+        <div class="theory-box">
+            <p>$$\text{SNR}_{\text{total}} = \text{SNR}_{\text{1 exp}} \times \sqrt{N}$$</p>
+        </div>
+    </div>
+
+    <div class="theory-block">
+        <h5><i class="bi bi-check2-circle"></i> Consejos para mejores observaciones</h5>
+        <ul>
+            <li><strong>Observa cerca del cénit</strong> para minimizar masa de aire y extinción atmosférica.</li>
+            <li><strong>Usa binning</strong> en objetos débiles — más señal por píxel, a costa de resolución.</li>
+            <li><strong>Apila exposiciones</strong> — el SNR total crece como $\sqrt{N}$.</li>
+            <li><strong>Enfría la cámara</strong> para reducir la corriente oscura.</li>
+            <li><strong>Apertura ≈ 2–3× FWHM</strong> del seeing para el mejor balance señal/ruido.</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="/static/js/snr.js"></script>
+{% endblock %}
