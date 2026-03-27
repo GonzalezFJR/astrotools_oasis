@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .config import settings
 
@@ -15,6 +16,8 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         description="Herramientas de planificación de observaciones astronómicas",
     )
+
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
     app.mount(
         "/static",
