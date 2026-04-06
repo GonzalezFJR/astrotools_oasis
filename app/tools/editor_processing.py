@@ -394,6 +394,60 @@ def get_image_histogram(
     }
 
 
+def get_rgb_histogram(project_id: str, composite_id: str, n_bins: int = 256) -> dict:
+    """
+    Compute per-channel (R, G, B) + luminance histograms for a color composite.
+    Returns counts for L, R, G, B channels.
+    """
+    from .editor_project import load_project
+    from astropy.io import fits as pyfits
+
+    project = load_project(project_id)
+    if project is None:
+        raise ValueError(f"Project {project_id} not found")
+
+    composites = project.get("color_composites", [])
+    record = None
+    for c in composites:
+        if c["id"] == composite_id:
+            record = c
+            break
+    if record is None:
+        raise ValueError(f"Composite {composite_id} not found")
+
+    fpath = _projects_base() / project_id / "results" / record["stored_name"]
+    if not fpath.exists():
+        raise ValueError("Composite file not found")
+
+    with pyfits.open(fpath) as hdul:
+        cube = hdul[0].data.astype(np.float64)
+
+    # cube is (3, H, W)
+    if cube.ndim != 3 or cube.shape[0] != 3:
+        raise ValueError("Invalid composite data")
+
+    r_ch, g_ch, b_ch = cube[0], cube[1], cube[2]
+    lum = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
+
+    result = {"width": int(cube.shape[2]), "height": int(cube.shape[1])}
+    for name, ch_data in [("L", lum), ("R", r_ch), ("G", g_ch), ("B", b_ch)]:
+        cmin, cmax = float(np.min(ch_data)), float(np.max(ch_data))
+        if cmax > cmin:
+            normed = (ch_data - cmin) / (cmax - cmin)
+        else:
+            normed = np.zeros_like(ch_data)
+        counts, _ = np.histogram(normed.ravel(), bins=n_bins, range=(0, 1))
+        result[name] = {
+            "counts": counts.tolist(),
+            "data_min": cmin,
+            "data_max": cmax,
+            "data_mean": float(np.mean(ch_data)),
+            "data_std": float(np.std(ch_data)),
+        }
+
+    return result
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def _load_source(project_id: str, source_id: str, source_type: str) -> tuple[np.ndarray, dict]:

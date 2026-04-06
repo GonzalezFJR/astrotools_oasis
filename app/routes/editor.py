@@ -388,6 +388,7 @@ from ..tools.editor_processing import (
     flip_image,
     get_image_histogram,
     get_processing_status,
+    get_rgb_histogram,
     get_stretch_preview,
     rotate_image,
     stretch_image,
@@ -497,6 +498,19 @@ async def api_histogram(project_id: str, body: HistogramBody):
         return {"error": str(e)}
 
 
+class RGBHistogramBody(BaseModel):
+    composite_id: str
+    n_bins: int = Field(256, ge=32, le=1024)
+
+
+@router.post("/api/projects/{project_id}/processing/rgb-histogram")
+async def api_rgb_histogram(project_id: str, body: RGBHistogramBody):
+    try:
+        return get_rgb_histogram(project_id, body.composite_id, body.n_bins)
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.get("/api/projects/{project_id}/processing/status")
 async def api_processing_status(project_id: str):
     return get_processing_status(project_id)
@@ -517,13 +531,14 @@ from ..tools.editor_color import (
     get_color_preview,
     get_color_status,
     get_mono_preview,
+    get_palette_info,
     get_palettes,
 )
 
 
 @router.get("/api/palettes")
 async def api_palettes():
-    return get_palettes()
+    return get_palette_info()
 
 
 class ComposeColorBody(BaseModel):
@@ -535,6 +550,8 @@ class ComposeColorBody(BaseModel):
     auto_balance: bool = True
     stretch_method: str | None = None
     stretch_params: dict | None = None
+    channel_weights: dict | None = None
+    palette: str | None = None
 
 
 @router.post("/api/projects/{project_id}/color/compose")
@@ -550,6 +567,8 @@ async def api_compose_color(project_id: str, body: ComposeColorBody):
             body.auto_balance,
             body.stretch_method,
             body.stretch_params,
+            body.channel_weights,
+            body.palette,
         )
     except Exception as e:
         return {"error": str(e)}

@@ -6,9 +6,28 @@
 (() => {
     'use strict';
 
+    // ═══════════════════════════════════════════════
+    // ═══════════════════════════════════════════════
+    //  HistogramPanel is loaded from histogram_panel.js
+    // ═══════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════
+
     // ── State ───────────────────────────────────
     let currentProject = null;
     let selectedFrameType = '';     // '' = auto-detect
+    let globalMaxSize = 1000;
+
+    // HistogramPanel instances (set during init)
+    let hpProc = null, hpColor = null, hpPreview = null, hpLive = null;
+    // Color RGB histogram panel (main area)
+    let hpColorRGB = null;
+    // Processing main-area dual histogram panel
+    let hpProcMain = null;
+
+    // Palette state
+    let currentPalette = 'RGB';
+    let paletteInfo = {};
 
     const API = '/editor/api';
 
@@ -222,7 +241,6 @@
         updatePreviewUI();
         updateExportUI();
         updateLiveEditUI();
-        updatePipelineProgress();
         updateUndoRedoButtons();
     }
 
@@ -255,21 +273,41 @@
     function updateStats() {
         if (!currentProject) return;
         const imgs = currentProject.images || {};
-        document.getElementById('statLights').textContent = (imgs.light || []).length;
-        document.getElementById('statDarks').textContent = (imgs.dark || []).length;
-        document.getElementById('statFlats').textContent = (imgs.flat || []).length;
-        document.getElementById('statBias').textContent = (imgs.bias || []).length;
-        document.getElementById('statUnclassified').textContent = (imgs.unclassified || []).length;
+        const nL = (imgs.light || []).length, nD = (imgs.dark || []).length;
+        const nF = (imgs.flat || []).length, nB = (imgs.bias || []).length;
+        const nU = (imgs.unclassified || []).length;
+        // Project sidebar
+        document.getElementById('statLights').textContent = nL;
+        document.getElementById('statDarks').textContent = nD;
+        document.getElementById('statFlats').textContent = nF;
+        document.getElementById('statBias').textContent = nB;
+        document.getElementById('statUnclassified').textContent = nU;
+        // Images sidebar
+        const setEl = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        setEl('sideStatLights2', nL);
+        setEl('sideStatDarks2', nD);
+        setEl('sideStatFlats2', nF);
+        setEl('sideStatBias2', nB);
+        // Calibration sidebar
+        setEl('sideCalBias', nB);
+        setEl('sideCalDarks', nD);
+        setEl('sideCalFlats', nF);
+        setEl('sideCalLights', nL);
     }
 
     // ── Tab switching ───────────────────────────
     const tabButtons = document.querySelectorAll('.etab');
     const tabPanes = document.querySelectorAll('.editor-tab-pane');
+    const sidebarPanels = document.querySelectorAll('.sidebar-panel');
+    let _prevTabBeforePreview = 'tab-project';
 
     function switchTab(tabId) {
         tabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabId));
         tabPanes.forEach(pane => pane.classList.toggle('active', pane.id === tabId));
-        updateSidebarHelp(tabId);
+        sidebarPanels.forEach(p => p.classList.toggle('active', p.dataset.sidebar === tabId));
+        // Sync eye button state
+        const btnPrev = document.getElementById('btnPreview');
+        if (btnPrev) btnPrev.classList.toggle('active', tabId === 'tab-preview');
     }
 
     tabButtons.forEach(btn => {
@@ -279,6 +317,18 @@
         });
     });
 
+    // Preview transversal eye button (toggle)
+    document.getElementById('btnPreview').addEventListener('click', () => {
+        const isPreviewActive = document.getElementById('tab-preview').classList.contains('active');
+        if (isPreviewActive) {
+            switchTab(_prevTabBeforePreview);
+        } else {
+            const curActive = document.querySelector('.etab.active');
+            _prevTabBeforePreview = curActive ? curActive.dataset.tab : 'tab-project';
+            switchTab('tab-preview');
+        }
+    });
+
     function updateTabEnabledState() {
         const hasLights = currentProject && (currentProject.images.light || []).length > 0;
         tabButtons.forEach(btn => {
@@ -286,25 +336,6 @@
                 btn.classList.toggle('disabled', !hasLights);
             }
         });
-    }
-
-    // ── Sidebar context help ────────────────────
-    const HELP_TEXTS = {
-        'tab-project': 'Revisa y edita los metadatos de tu proyecto. Aquí ves el resumen general de todas las imágenes cargadas.',
-        'tab-images': 'Sube imágenes y clasifícalas por tipo (light, dark, flat, bias). El sistema intentará auto-detectar el tipo basándose en el nombre y en los metadatos del archivo.',
-        'tab-calibration': 'Crea los master frames de calibración y aplícalos a tus lights para eliminar ruido térmico, viñeteo y artefactos del sensor.',
-        'tab-alignment': 'Alinea todos los frames para que las estrellas coincidan. El sistema detecta estrellas automáticamente.',
-        'tab-stacking': 'Combina los lights alineados en una sola imagen por canal, aumentando la señal y reduciendo el ruido.',
-        'tab-processing': 'Ajusta el histograma, recorta, rota y aplica curvas para revelar los detalles de tu imagen.',
-        'tab-color': 'Asigna colores a los canales y crea tu imagen final en color con la paleta que prefieras.',
-        'tab-liveedit': 'Editor visual en tiempo real. Todos los ajustes (brillo, contraste, stretch, enfoque, ruido…) se procesan en tu navegador sin enviar nada al servidor.',
-        'tab-preview': 'Vista rápida no destructiva de cualquier light. Útil para comprobar la calidad antes de procesar.',
-        'tab-export': 'Descarga tu imagen procesada en FITS, TIFF, PNG o JPG.',
-    };
-
-    function updateSidebarHelp(tabId) {
-        const helpEl = document.getElementById('sidebarHelp');
-        helpEl.innerHTML = `<p class="text-secondary small">${HELP_TEXTS[tabId] || ''}</p>`;
     }
 
     // ── Frame type selector ─────────────────────
@@ -686,6 +717,32 @@
     }
 
     // ── Init ────────────────────────────────────
+    // ── Sidebar resize ────────────────────────
+    function initSidebarResize() {
+        const handle = document.getElementById('sidebarResizeHandle');
+        const sidebar = document.getElementById('editorSidebar');
+        if (!handle || !sidebar) return;
+
+        let startX, startW;
+        function onMouseMove(e) {
+            const newW = Math.max(180, Math.min(window.innerWidth * 0.5, startW + (e.clientX - startX)));
+            sidebar.style.width = newW + 'px';
+        }
+        function onMouseUp() {
+            handle.classList.remove('dragging');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startX = e.clientX;
+            startW = sidebar.offsetWidth;
+            handle.classList.add('dragging');
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         loadProjectsList();
         initCalibration();
@@ -699,7 +756,88 @@
         initTutorial();
         initComparator();
         initLiveEdit();
+        initSidebarResize();
+        initGlobalMaxSize();
+        initZoomContainers();
     });
+
+    // ═══════════════════════════════════════════════
+    //  GLOBAL MAX-SIZE SYNC
+    // ═══════════════════════════════════════════════
+
+    function initGlobalMaxSize() {
+        const selects = document.querySelectorAll('.global-max-size');
+        selects.forEach(sel => {
+            sel.addEventListener('change', () => {
+                globalMaxSize = parseInt(sel.value) || 1000;
+                selects.forEach(o => { if (o !== sel) o.value = globalMaxSize; });
+            });
+        });
+    }
+
+    // ═══════════════════════════════════════════════
+    //  CANVAS ZOOM (scroll to zoom, drag to pan)
+    // ═══════════════════════════════════════════════
+
+    function initZoomContainer(container) {
+        let scale = 1, panX = 0, panY = 0, dragging = false, startX = 0, startY = 0;
+        const content = container.querySelector('.zoom-content');
+        const fitBtn = container.querySelector('.zoom-fit-btn');
+        if (!content) return;
+
+        function applyTransform() {
+            content.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+            content.style.transformOrigin = '0 0';
+        }
+
+        function fitToCanvas() {
+            scale = 1; panX = 0; panY = 0;
+            content.style.transform = '';
+            content.style.transformOrigin = '';
+        }
+
+        container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const contentRect = content.getBoundingClientRect();
+            // Point in content's untransformed coordinate system
+            const contentX = (e.clientX - contentRect.left) / scale;
+            const contentY = (e.clientY - contentRect.top) / scale;
+
+            const prevScale = scale;
+            const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+            scale = Math.max(0.1, Math.min(20, scale * factor));
+
+            // Adjust pan so that contentX/contentY stays under the mouse
+            panX += contentX * (prevScale - scale);
+            panY += contentY * (prevScale - scale);
+            applyTransform();
+        }, { passive: false });
+
+        container.addEventListener('mousedown', (e) => {
+            if (scale <= 1) return;
+            dragging = true;
+            startX = e.clientX - panX;
+            startY = e.clientY - panY;
+            container.style.cursor = 'grabbing';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            panX = e.clientX - startX;
+            panY = e.clientY - startY;
+            applyTransform();
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (dragging) { dragging = false; container.style.cursor = ''; }
+        });
+
+        if (fitBtn) fitBtn.addEventListener('click', fitToCanvas);
+    }
+
+    function initZoomContainers() {
+        document.querySelectorAll('.zoom-container').forEach(c => initZoomContainer(c));
+    }
 
     // ═══════════════════════════════════════════════
     //  CALIBRATION
@@ -946,7 +1084,7 @@
     // ═══════════════════════════════════════════════
 
     function initAlignment() {
-        document.getElementById('btnAlignFrames').addEventListener('click', async () => {
+        document.getElementById('sideAlignBtn').addEventListener('click', async () => {
             await runAlignment();
         });
     }
@@ -955,10 +1093,10 @@
         if (!currentProject) return;
 
         const spinner = document.getElementById('alignSpinner');
-        const method = document.getElementById('alignMethod').value;
-        const sigma = parseFloat(document.getElementById('alignSigma').value) || 5.0;
-        const discardRms = parseFloat(document.getElementById('alignDiscardRms').value) || 0;
-        const useCalibrated = document.getElementById('alignUseCalibrated').checked;
+        const method = document.getElementById('sideAlignMethod').value;
+        const sigma = parseFloat(document.getElementById('sideAlignSigma').value) || 5.0;
+        const discardRms = parseFloat(document.getElementById('sideAlignDiscardRms').value) || 0;
+        const useCalibrated = document.getElementById('sideAlignUseCalibrated').checked;
 
         spinner.style.display = 'flex';
         document.getElementById('alignResultsCard').style.display = 'none';
@@ -1082,7 +1220,7 @@
     // ═══════════════════════════════════════════════
 
     function initStacking() {
-        document.getElementById('btnStackFrames').addEventListener('click', runStacking);
+        document.getElementById('sideStackBtn').addEventListener('click', runStacking);
     }
 
     async function runStacking() {
@@ -1096,12 +1234,12 @@
             const result = await api(`/projects/${currentProject.id}/stacking/stack`, {
                 method: 'POST',
                 body: JSON.stringify({
-                    method: document.getElementById('stackMethod').value,
-                    sigma: parseFloat(document.getElementById('stackSigma').value) || 3.0,
-                    use_aligned: document.getElementById('stackUseAligned').checked,
-                    normalize: document.getElementById('stackNormalize').checked,
-                    reject_percent: parseFloat(document.getElementById('stackReject').value) || 0,
-                    weight_by_quality: document.getElementById('stackWeighted').checked,
+                    method: document.getElementById('sideStackMethod').value,
+                    sigma: parseFloat(document.getElementById('sideStackSigma').value) || 3.0,
+                    use_aligned: document.getElementById('sideStackUseAligned').checked,
+                    normalize: document.getElementById('sideStackNormalize').checked,
+                    reject_percent: parseFloat(document.getElementById('sideStackReject').value) || 0,
+                    weight_by_quality: document.getElementById('sideStackWeighted').checked,
                 }),
             });
 
@@ -1221,7 +1359,7 @@
 
     function initProcessing() {
         // Source select
-        document.getElementById('btnProcLoadHisto').addEventListener('click', loadHistogram);
+        document.getElementById('sideProcLoadHisto').addEventListener('click', loadHistogram);
 
         // Geometry
         document.getElementById('btnAutoCrop').addEventListener('click', runAutoCrop);
@@ -1231,33 +1369,46 @@
         document.getElementById('btnFlipV').addEventListener('click', () => runFlip('vertical'));
 
         // Stretch
-        document.getElementById('btnStretchPreview').addEventListener('click', runStretchPreview);
-        document.getElementById('btnStretchApply').addEventListener('click', runStretchApply);
+        document.getElementById('sideProcPreview').addEventListener('click', runStretchPreview);
+        document.getElementById('sideProcApply').addEventListener('click', runStretchApply);
+
+        // HistogramPanel for Processing sidebar (mono)
+        hpProc = new HistogramPanel(document.getElementById('procHistoPanel'), {
+            mode: 'mono', height: 80,
+            zmin: 0.002, zmax: 0.999,
+            onChange(ch, zmin, zmax) { /* sidebar slider readout updated by panel itself */ },
+        });
+
+        // HistogramPanel for Processing main area (dual: original + processed)
+        hpProcMain = new HistogramPanel(document.getElementById('procMainHistoPanel'), {
+            mode: 'dual', height: 100,
+            labels: { original: 'Original', processed: 'Procesado' },
+        });
 
         // Dynamic params visibility based on method
-        document.getElementById('stretchMethod').addEventListener('change', updateStretchParams);
+        document.getElementById('sideStretchMethod').addEventListener('change', updateStretchParams);
 
         // Range display
-        document.getElementById('stretchBeta').addEventListener('input', e => {
-            document.getElementById('stretchBetaVal').textContent = e.target.value;
+        document.getElementById('sideStretchBeta').addEventListener('input', e => {
+            document.getElementById('sideStretchBetaVal').textContent = e.target.value;
         });
-        document.getElementById('stretchMidtone').addEventListener('input', e => {
-            document.getElementById('stretchMidtoneVal').textContent = e.target.value;
+        document.getElementById('sideStretchMidtone').addEventListener('input', e => {
+            document.getElementById('sideStretchMidVal').textContent = e.target.value;
         });
-        document.getElementById('stretchScale').addEventListener('input', e => {
-            document.getElementById('stretchScaleVal').textContent = e.target.value;
+        document.getElementById('sideStretchScale').addEventListener('input', e => {
+            document.getElementById('sideStretchScaleVal').textContent = e.target.value;
         });
     }
 
     function updateStretchParams() {
-        const method = document.getElementById('stretchMethod').value;
-        document.getElementById('stretchBetaGroup').style.display = method === 'asinh' ? '' : 'none';
-        document.getElementById('stretchMidtoneGroup').style.display = method === 'midtone' ? '' : 'none';
-        document.getElementById('stretchScaleGroup').style.display = method === 'log' ? '' : 'none';
+        const method = document.getElementById('sideStretchMethod').value;
+        document.getElementById('sideStretchBetaGrp').style.display = method === 'asinh' ? '' : 'none';
+        document.getElementById('sideStretchMidGrp').style.display = method === 'midtone' ? '' : 'none';
+        document.getElementById('sideStretchScaleGrp').style.display = method === 'log' ? '' : 'none';
     }
 
     function _getSelectedSource() {
-        const sel = document.getElementById('procSourceSelect');
+        const sel = document.getElementById('sideProcSource');
         const val = sel.value;
         if (!val) return null;
         // Format: "type:id"
@@ -1266,20 +1417,21 @@
     }
 
     function _buildStretchParams() {
-        const method = document.getElementById('stretchMethod').value;
+        const method = document.getElementById('sideStretchMethod').value;
+        const { zmin, zmax } = hpProc ? hpProc.getValues('L') : { zmin: 0.002, zmax: 0.999 };
         const params = {
-            black_point: parseFloat(document.getElementById('stretchBP').value) || 0.2,
-            white_point: parseFloat(document.getElementById('stretchWP').value) || 99.9,
+            black_point: zmin * 100,
+            white_point: zmax * 100,
         };
-        if (method === 'asinh') params.beta = parseFloat(document.getElementById('stretchBeta').value) || 10;
-        if (method === 'midtone') params.midtone = parseFloat(document.getElementById('stretchMidtone').value) || 0.25;
-        if (method === 'log') params.scale = parseFloat(document.getElementById('stretchScale').value) || 1000;
+        if (method === 'asinh') params.beta = parseFloat(document.getElementById('sideStretchBeta').value) || 10;
+        if (method === 'midtone') params.midtone = parseFloat(document.getElementById('sideStretchMidtone').value) || 0.25;
+        if (method === 'log') params.scale = parseFloat(document.getElementById('sideStretchScale').value) || 1000;
         return params;
     }
 
     function updateProcessingSourceSelect() {
         if (!currentProject) return;
-        const sel = document.getElementById('procSourceSelect');
+        const sel = document.getElementById('sideProcSource');
         const prevVal = sel.value;
 
         let html = '<option value="" disabled>— Selecciona una imagen —</option>';
@@ -1319,6 +1471,28 @@
             html += '</optgroup>';
         }
 
+        // Calibrated lights
+        const calibrated = (currentProject.images && currentProject.images.calibrated) || [];
+        if (calibrated.length) {
+            html += '<optgroup label="Calibrados">';
+            calibrated.forEach(c => {
+                const name = c.original_name || c.filename || c.id;
+                html += `<option value="calibrated:${c.id}">${escHtml(name)}</option>`;
+            });
+            html += '</optgroup>';
+        }
+
+        // Raw lights
+        const lights = (currentProject.images && currentProject.images.light) || [];
+        if (lights.length) {
+            html += '<optgroup label="Lights (RAW)">';
+            lights.forEach(l => {
+                const name = l.original_name || l.filename || l.id;
+                html += `<option value="light:${l.id}">${escHtml(name)}</option>`;
+            });
+            html += '</optgroup>';
+        }
+
         sel.innerHTML = html;
         // Restore selection if still valid
         if (prevVal && sel.querySelector(`option[value="${prevVal}"]`)) {
@@ -1338,7 +1512,11 @@
             if (data.error) { showToast(data.error, 'error'); return; }
 
             currentHistogram = data;
-            drawHistogram(data);
+
+            // Feed to sidebar panel and main-area panel
+            if (hpProc) hpProc.setHistogram('L', data.counts);
+            if (hpProcMain) hpProcMain.setHistogram('L', data.counts);
+
             document.getElementById('procHistoCard').style.display = '';
             document.getElementById('histoMin').textContent = data.data_min.toFixed(1);
             document.getElementById('histoMax').textContent = data.data_max.toFixed(1);
@@ -1355,40 +1533,16 @@
         }
     }
 
-    function drawHistogram(data) {
-        const canvas = document.getElementById('procHistoCanvas');
-        const ctx = canvas.getContext('2d');
-        const W = canvas.width;
-        const H = canvas.height;
-
-        ctx.clearRect(0, 0, W, H);
-
-        const counts = data.counts;
-        // Use log scale for better visibility
-        const logCounts = counts.map(c => c > 0 ? Math.log10(c) : 0);
-        const maxLog = Math.max(...logCounts, 1);
-
-        const barW = W / counts.length;
-
-        // Draw bars
-        ctx.fillStyle = 'rgba(99, 102, 241, 0.6)';
-        for (let i = 0; i < counts.length; i++) {
-            const barH = (logCounts[i] / maxLog) * (H - 10);
-            ctx.fillRect(i * barW, H - barH, barW, barH);
-        }
-
-        // Draw border line
-        ctx.strokeStyle = 'rgba(99, 102, 241, 0.9)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let i = 0; i < counts.length; i++) {
-            const barH = (logCounts[i] / maxLog) * (H - 10);
-            const x = i * barW + barW / 2;
-            const y = H - barH;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
+    /** After a processing operation, load the processed histogram to show dual view */
+    async function loadProcessedHistogram(processedId) {
+        try {
+            const data = await api(`/projects/${currentProject.id}/processing/histogram`, {
+                method: 'POST',
+                body: JSON.stringify({ source_id: processedId, source_type: 'processed' }),
+            });
+            if (data.error) return;
+            if (hpProcMain) hpProcMain.setHistogram('L_proc', data.counts);
+        } catch (err) { /* ignore */ }
     }
 
     async function _runProcOp(endpoint, body, spinnerText) {
@@ -1412,6 +1566,10 @@
             updateProcessingSourceSelect();
             updateProcessingLog();
             showToast(`${spinnerText.replace('...', '')}: completado`);
+
+            // Load processed histogram for dual view
+            if (result.id) loadProcessedHistogram(result.id);
+
             return result;
         } catch (err) {
             showToast(`Error: ${err.message}`, 'error');
@@ -1448,7 +1606,7 @@
         const src = _getSelectedSource();
         if (!src) { showToast('Selecciona una imagen primero', 'error'); return; }
 
-        const method = document.getElementById('stretchMethod').value;
+        const method = document.getElementById('sideStretchMethod').value;
         const params = _buildStretchParams();
 
         try {
@@ -1471,7 +1629,7 @@
     }
 
     async function runStretchApply() {
-        const method = document.getElementById('stretchMethod').value;
+        const method = document.getElementById('sideStretchMethod').value;
         const params = _buildStretchParams();
         await _runProcOp('stretch', { method, params }, 'Aplicando stretch...');
     }
@@ -1537,14 +1695,122 @@
     // ═══════════════════════════════════════════════
 
     function initColor() {
-        document.getElementById('btnComposeColor').addEventListener('click', runComposeColor);
-        document.getElementById('colorLumWeight').addEventListener('input', e => {
-            document.getElementById('colorLumWeightVal').textContent = parseFloat(e.target.value).toFixed(2);
+        document.getElementById('sideColorCompose').addEventListener('click', runComposeColor);
+        document.getElementById('sideColorLumW').addEventListener('input', e => {
+            document.getElementById('sideColorLumWVal').textContent = parseFloat(e.target.value).toFixed(2);
         });
-        document.getElementById('colorSaturation').addEventListener('input', e => {
-            document.getElementById('colorSatVal').textContent = parseFloat(e.target.value).toFixed(2);
+        document.getElementById('sideColorSat').addEventListener('input', e => {
+            document.getElementById('sideColorSatVal').textContent = parseFloat(e.target.value).toFixed(2);
         });
-        document.getElementById('btnColorPreviewFull').addEventListener('click', showColorFullscreen);
+
+        // HistogramPanel for Color sidebar (mono for stretch zmin/zmax)
+        hpColor = new HistogramPanel(document.getElementById('colorHistoPanel'), {
+            mode: 'mono', height: 70,
+            zmin: 0.002, zmax: 0.999,
+        });
+
+        // HistogramPanel for Color RGB main area (dual L + R/G/B)
+        hpColorRGB = new HistogramPanel(document.getElementById('colorRGBHistoPanel'), {
+            mode: 'dual+rgb', height: 70,
+            labels: { original: 'Luminancia (original)', processed: 'Luminancia (resultado)' },
+        });
+
+        // Color stretch method toggles
+        document.getElementById('sideColorStretch').addEventListener('change', () => {
+            _updateColorStretchParams();
+        });
+        _updateColorStretchParams();
+
+        // Color stretch slider displays
+        const colorSliderMap = [
+            ['sideColorBeta', 'sideColorBetaVal'],
+            ['sideColorMidtone', 'sideColorMidVal'],
+            ['sideColorScale', 'sideColorScaleVal'],
+        ];
+        colorSliderMap.forEach(([sid, vid]) => {
+            const el = document.getElementById(sid);
+            if (el) el.addEventListener('input', () => {
+                document.getElementById(vid).textContent = el.value;
+            });
+        });
+
+        // Channel mixer sliders
+        ['mixerWeightC1', 'mixerWeightC2', 'mixerWeightC3'].forEach((id, i) => {
+            const el = document.getElementById(id);
+            const valEl = document.getElementById(`mixerValC${i + 1}`);
+            if (el) el.addEventListener('input', () => {
+                valEl.textContent = parseFloat(el.value).toFixed(2);
+            });
+        });
+
+        // Load palettes and build preset buttons
+        _loadPalettes();
+    }
+
+    async function _loadPalettes() {
+        try {
+            paletteInfo = await api('/palettes');
+        } catch (e) {
+            paletteInfo = {
+                RGB: { label: 'RGB', input_labels: ['R', 'G', 'B'], has_transform: false },
+            };
+        }
+        _buildPaletteButtons();
+        _selectPalette('RGB');
+    }
+
+    function _buildPaletteButtons() {
+        const wrap = document.getElementById('palettePresetBtns');
+        wrap.innerHTML = '';
+        for (const [key, info] of Object.entries(paletteInfo)) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'palette-preset-btn';
+            btn.textContent = info.label || key;
+            btn.title = info.description || '';
+            btn.dataset.palette = key;
+            btn.addEventListener('click', () => _selectPalette(key));
+            wrap.appendChild(btn);
+        }
+    }
+
+    function _selectPalette(key) {
+        currentPalette = key;
+        const info = paletteInfo[key] || { input_labels: ['R', 'G', 'B'], has_transform: false };
+        const labels = info.input_labels || ['R', 'G', 'B'];
+        const isStdRGB = !info.has_transform;
+
+        // Highlight active button
+        document.querySelectorAll('#palettePresetBtns .palette-preset-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.palette === key);
+        });
+
+        // Update channel labels
+        const colors = isStdRGB
+            ? [{ cls: 'text-danger', dot: 'dot-red' }, { cls: 'text-success', dot: 'dot-green' }, { cls: 'text-primary', dot: 'dot-blue' }]
+            : [{ cls: 'text-warning', dot: '' }, { cls: 'text-info', dot: '' }, { cls: 'text-secondary', dot: '' }];
+
+        for (let i = 0; i < 3; i++) {
+            const lblEl = document.getElementById(`colorLblC${i + 1}`);
+            const dotEl = lblEl.querySelector('.color-dot');
+            const spanEl = lblEl.querySelector('span:last-child') || lblEl.querySelector('span');
+            if (spanEl) spanEl.textContent = labels[i] || `C${i + 1}`;
+            if (dotEl) dotEl.className = `color-dot ${colors[i].dot}`;
+
+            const mixerLbl = document.getElementById(`mixerLblC${i + 1}`);
+            if (mixerLbl) {
+                mixerLbl.textContent = isStdRGB ? ['R', 'G', 'B'][i] : `C${i + 1}`;
+                mixerLbl.className = colors[i].cls;
+            }
+        }
+    }
+
+    function _updateColorStretchParams() {
+        const method = document.getElementById('sideColorStretch').value;
+        const show = (id, v) => { const el = document.getElementById(id); if (el) el.style.display = v ? '' : 'none'; };
+        show('sideColorBetaGrp', method === 'asinh');
+        show('sideColorMidGrp', method === 'midtone');
+        show('sideColorScaleGrp', method === 'log');
     }
 
     function _buildImageOptions(includeNone = false) {
@@ -1590,10 +1856,10 @@
     function updateColorChannelSelects() {
         const opts = _buildImageOptions(false);
         const optsNone = _buildImageOptions(true);
-        document.getElementById('colorChR').innerHTML = opts;
-        document.getElementById('colorChG').innerHTML = opts;
-        document.getElementById('colorChB').innerHTML = opts;
-        document.getElementById('colorChL').innerHTML = optsNone;
+        document.getElementById('sideColorChR').innerHTML = opts;
+        document.getElementById('sideColorChG').innerHTML = opts;
+        document.getElementById('sideColorChB').innerHTML = opts;
+        document.getElementById('sideColorChL').innerHTML = optsNone;
     }
 
     function _parseSourceVal(val) {
@@ -1605,9 +1871,9 @@
     async function runComposeColor() {
         if (!currentProject) return;
 
-        const rVal = document.getElementById('colorChR').value;
-        const gVal = document.getElementById('colorChG').value;
-        const bVal = document.getElementById('colorChB').value;
+        const rVal = document.getElementById('sideColorChR').value;
+        const gVal = document.getElementById('sideColorChG').value;
+        const bVal = document.getElementById('sideColorChB').value;
 
         const channels = {};
         const rSrc = _parseSourceVal(rVal);
@@ -1622,19 +1888,39 @@
             return;
         }
 
-        const lVal = document.getElementById('colorChL').value;
+        const lVal = document.getElementById('sideColorChL').value;
         const lSrc = _parseSourceVal(lVal);
 
-        const stretch = document.getElementById('colorStretch').value || null;
+        const stretch = document.getElementById('sideColorStretch').value || null;
+
+        // Build stretch params from HistogramPanel
+        let stretchParams = null;
+        if (stretch) {
+            const { zmin, zmax } = hpColor ? hpColor.getValues('L') : { zmin: 0.002, zmax: 0.999 };
+            stretchParams = { black_point: zmin * 100, white_point: zmax * 100 };
+            if (stretch === 'asinh') stretchParams.beta = parseFloat(document.getElementById('sideColorBeta').value) || 10;
+            if (stretch === 'midtone') stretchParams.midtone = parseFloat(document.getElementById('sideColorMidtone').value) || 0.25;
+            if (stretch === 'log') stretchParams.scale = parseFloat(document.getElementById('sideColorScale').value) || 1000;
+        }
+
+        // Channel weights from mixer
+        const channel_weights = {
+            C1: parseFloat(document.getElementById('mixerWeightC1').value) || 1.0,
+            C2: parseFloat(document.getElementById('mixerWeightC2').value) || 1.0,
+            C3: parseFloat(document.getElementById('mixerWeightC3').value) || 1.0,
+        };
 
         const body = {
             channels,
-            saturation: parseFloat(document.getElementById('colorSaturation').value) || 1.0,
-            auto_balance: document.getElementById('colorAutoBalance').checked,
+            saturation: parseFloat(document.getElementById('sideColorSat').value) || 1.0,
+            auto_balance: document.getElementById('sideColorAutoBalance').checked,
             luminance_id: lSrc ? lSrc.source_id : null,
             luminance_type: lSrc ? lSrc.source_type : 'stacked',
-            luminance_weight: parseFloat(document.getElementById('colorLumWeight').value) || 0.7,
+            luminance_weight: parseFloat(document.getElementById('sideColorLumW').value) || 0.7,
             stretch_method: stretch,
+            stretch_params: stretchParams,
+            channel_weights,
+            palette: currentPalette !== 'RGB' ? currentPalette : null,
         };
 
         const spinner = document.getElementById('colorSpinner');
@@ -1663,48 +1949,60 @@
         }
     }
 
-    function showColorResult(result) {
+    async function showColorResult(result) {
         const card = document.getElementById('colorResultCard');
         card.style.display = '';
 
-        if (result.thumbnail) {
-            const thumbFile = result.thumbnail.replace('thumbnails/', '');
-            document.getElementById('colorResultThumb').src =
-                `${API}/projects/${currentProject.id}/thumbnails/${thumbFile}`;
-        }
-
-        document.getElementById('colorResSize').textContent =
-            result.width && result.height ? `${result.width}×${result.height}` : '—';
-
-        const cs = result.channel_stats || {};
-        document.getElementById('colorResR').textContent = cs.R ? cs.R.mean.toFixed(3) : '—';
-        document.getElementById('colorResG').textContent = cs.G ? cs.G.mean.toFixed(3) : '—';
-        document.getElementById('colorResB').textContent = cs.B ? cs.B.mean.toFixed(3) : '—';
-    }
-
-    let _lastColorId = null;
-    async function showColorFullscreen() {
-        if (!currentProject) return;
+        // Fetch full-size color preview
         const composites = currentProject.color_composites || [];
         const latest = composites[composites.length - 1];
         if (!latest) return;
 
-        const res = await fetch(`${API}/projects/${currentProject.id}/preview/color`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ composite_id: latest.id, max_size: 2000 }),
-        });
-        if (!res.ok) return;
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
+        try {
+            const res = await fetch(`${API}/projects/${currentProject.id}/preview/color`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ composite_id: latest.id, max_size: globalMaxSize }),
+            });
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const img = document.getElementById('colorResultImg');
+            if (img._prevUrl) URL.revokeObjectURL(img._prevUrl);
+            img.src = url;
+            img._prevUrl = url;
+        } catch (err) {
+            // Fallback: show thumbnail
+            if (result.thumbnail) {
+                const thumbFile = result.thumbnail.replace('thumbnails/', '');
+                document.getElementById('colorResultImg').src =
+                    `${API}/projects/${currentProject.id}/thumbnails/${thumbFile}`;
+            }
+        }
 
-        const overlay = document.createElement('div');
-        overlay.className = 'preview-fullscreen-overlay';
-        overlay.innerHTML = `<img src="${url}" alt="Color preview">`;
-        overlay.addEventListener('click', () => { overlay.remove(); URL.revokeObjectURL(url); });
-        document.body.appendChild(overlay);
+        // Load RGB histograms
+        _loadColorRGBHistograms(latest.id);
     }
 
+    async function _loadColorRGBHistograms(compositeId) {
+        try {
+            const data = await api(`/projects/${currentProject.id}/processing/rgb-histogram`, {
+                method: 'POST',
+                body: JSON.stringify({ composite_id: compositeId }),
+            });
+            if (data.error) return;
+
+            document.getElementById('colorRGBHistoCard').style.display = '';
+            if (hpColorRGB) {
+                if (data.L) hpColorRGB.setHistogram('L', data.L.counts);
+                if (data.R) hpColorRGB.setHistogram('R', data.R.counts);
+                if (data.G) hpColorRGB.setHistogram('G', data.G.counts);
+                if (data.B) hpColorRGB.setHistogram('B', data.B.counts);
+            }
+        } catch (err) { /* ignore */ }
+    }
+
+    let _lastColorId = null;
     function updateColorHistory() {
         if (!currentProject) return;
         const composites = currentProject.color_composites || [];
@@ -1765,18 +2063,69 @@
     //  PREVIEW
     // ═══════════════════════════════════════════════
 
+    let _previewDebounce = null;
+
     function initPreview() {
-        document.getElementById('btnPreviewGenerate').addEventListener('click', generatePreview);
+        document.getElementById('sidePreviewGenerate').addEventListener('click', generatePreview);
+
+        // HistogramPanel for Preview sidebar
+        hpPreview = new HistogramPanel(document.getElementById('previewHistoPanel'), {
+            mode: 'mono', height: 80,
+            zmin: 0.002, zmax: 0.999,
+            onChange(ch, zmin, zmax) {
+                _triggerLivePreview();
+            },
+        });
+
+        // Stretch method toggles dynamic params
+        document.getElementById('sidePreviewStretch').addEventListener('change', () => {
+            _updatePreviewStretchParams();
+            _triggerLivePreview();
+        });
+
+        // Slider value displays + live trigger
+        const sliderMap = [
+            ['sidePreviewBeta', 'sidePreviewBetaVal'],
+            ['sidePreviewMidtone', 'sidePreviewMidVal'],
+            ['sidePreviewScale', 'sidePreviewScaleVal'],
+        ];
+        sliderMap.forEach(([sliderId, valId]) => {
+            const slider = document.getElementById(sliderId);
+            const valEl = document.getElementById(valId);
+            if (slider && valEl) {
+                slider.addEventListener('input', () => {
+                    valEl.textContent = slider.value;
+                    _triggerLivePreview();
+                });
+            }
+        });
+
+        // Live trigger on source change
+        document.getElementById('sidePreviewSource').addEventListener('change', () => _triggerLivePreview());
+    }
+
+    function _updatePreviewStretchParams() {
+        const method = document.getElementById('sidePreviewStretch').value;
+        const show = (id, v) => { const el = document.getElementById(id); if (el) el.style.display = v ? '' : 'none'; };
+        show('sidePreviewBetaGrp', method === 'asinh');
+        show('sidePreviewMidGrp', method === 'midtone');
+        show('sidePreviewScaleGrp', method === 'log');
+    }
+
+    function _triggerLivePreview() {
+        if (!document.getElementById('sidePreviewLive').checked) return;
+        clearTimeout(_previewDebounce);
+        _previewDebounce = setTimeout(generatePreview, 350);
     }
 
     function updatePreviewSourceSelect() {
-        const sel = document.getElementById('previewSourceSelect');
+        const sel = document.getElementById('sidePreviewSource');
         sel.innerHTML = _buildImageOptions(false);
     }
 
     async function generatePreview() {
         if (!currentProject) return;
-        const val = document.getElementById('previewSourceSelect').value;
+        const val = document.getElementById('sidePreviewSource').value;
         const src = _parseSourceVal(val);
         if (!src) { showToast('Selecciona una imagen', 'error'); return; }
 
@@ -1786,8 +2135,15 @@
 
         try {
             const isColor = src.source_type === 'color_composite';
-            const stretch = document.getElementById('previewStretch').value;
-            const maxSize = parseInt(document.getElementById('previewMaxSize').value) || 1200;
+            const stretch = document.getElementById('sidePreviewStretch').value;
+            const maxSize = globalMaxSize;
+            const { zmin, zmax } = hpPreview ? hpPreview.getValues('L') : { zmin: 0.002, zmax: 0.999 };
+
+            // Build stretch params
+            const stretchParams = { black_point: zmin * 100, white_point: zmax * 100 };
+            if (stretch === 'asinh') stretchParams.beta = parseFloat(document.getElementById('sidePreviewBeta').value) || 10;
+            if (stretch === 'midtone') stretchParams.midtone = parseFloat(document.getElementById('sidePreviewMidtone').value) || 0.25;
+            if (stretch === 'log') stretchParams.scale = parseFloat(document.getElementById('sidePreviewScale').value) || 1000;
 
             let endpoint, body;
             if (isColor) {
@@ -1799,6 +2155,7 @@
                     source_id: src.source_id,
                     source_type: src.source_type,
                     stretch_method: stretch,
+                    stretch_params: stretchParams,
                     max_size: maxSize,
                 };
             }
@@ -1820,15 +2177,6 @@
             img.src = url;
             img._prevUrl = url;
 
-            // Click for fullscreen
-            img.onclick = () => {
-                const overlay = document.createElement('div');
-                overlay.className = 'preview-fullscreen-overlay';
-                overlay.innerHTML = `<img src="${url}" alt="Fullscreen preview">`;
-                overlay.addEventListener('click', () => overlay.remove());
-                document.body.appendChild(overlay);
-            };
-
             document.getElementById('previewDisplayCard').style.display = '';
         } catch (err) {
             showToast('Error de previsualización', 'error');
@@ -1847,27 +2195,27 @@
     // ═══════════════════════════════════════════════
 
     function initExport() {
-        document.getElementById('btnExport').addEventListener('click', runExport);
-        document.getElementById('exportStretch').addEventListener('change', e => {
-            document.getElementById('exportStretchMethodGroup').style.display = e.target.checked ? '' : 'none';
+        document.getElementById('sideExportBtn').addEventListener('click', runExport);
+        document.getElementById('sideExportStretch').addEventListener('change', e => {
+            document.getElementById('sideExportStretchGrp').style.display = e.target.checked ? '' : 'none';
         });
     }
 
     function updateExportSourceSelect() {
-        const sel = document.getElementById('exportSourceSelect');
+        const sel = document.getElementById('sideExportSource');
         sel.innerHTML = _buildImageOptions(false);
     }
 
     async function runExport() {
         if (!currentProject) return;
-        const val = document.getElementById('exportSourceSelect').value;
+        const val = document.getElementById('sideExportSource').value;
         const src = _parseSourceVal(val);
         if (!src) { showToast('Selecciona una imagen', 'error'); return; }
 
-        const format = document.getElementById('exportFormat').value;
-        const bitDepth = parseInt(document.getElementById('exportBitDepth').value) || 16;
-        const stretchOn = document.getElementById('exportStretch').checked;
-        const stretchMethod = document.getElementById('exportStretchMethod').value;
+        const format = document.getElementById('sideExportFormat').value;
+        const bitDepth = parseInt(document.getElementById('sideExportBitDepth').value) || 16;
+        const stretchOn = document.getElementById('sideExportStretch').checked;
+        const stretchMethod = document.getElementById('sideExportStretchMethod').value;
 
         const spinner = document.getElementById('exportSpinner');
         spinner.style.display = 'flex';
@@ -1926,55 +2274,19 @@
     }
 
     // ═══════════════════════════════════════════════
-    //  PHASE 5 — PIPELINE PROGRESS
-    // ═══════════════════════════════════════════════
-
-    function updatePipelineProgress() {
-        if (!currentProject) return;
-        const p = currentProject;
-        const imgs = p.images || {};
-        const log = (p.processing_log || []).map(e => (e.description || '').toLowerCase()).join(' ');
-
-        const hasImages = Object.values(imgs).some(arr => (arr || []).length > 0);
-        const hasMasters = !!(p.master_bias || p.master_dark || p.master_flat);
-        const hasCalibrated = (imgs.calibrated || []).length > 0 || log.includes('calibra');
-        const hasAligned = (imgs.aligned || []).length > 0 || log.includes('alinea') || log.includes('align');
-        const hasStacked = Object.keys(p.stacked_channels || {}).length > 0 || log.includes('apila') || log.includes('stack');
-        const hasProcessed = log.includes('stretch') || log.includes('recort') || log.includes('crop') || log.includes('rot');
-        const hasExported = log.includes('export');
-
-        const steps = [
-            { id: 'pp-load', done: hasImages },
-            { id: 'pp-calibration', done: hasMasters || hasCalibrated },
-            { id: 'pp-alignment', done: hasAligned },
-            { id: 'pp-stacking', done: hasStacked },
-            { id: 'pp-processing', done: hasProcessed },
-            { id: 'pp-export', done: hasExported },
-        ];
-
-        // Find the first not-done step → that's active
-        let activeIdx = steps.findIndex(s => !s.done);
-        if (activeIdx === -1) activeIdx = steps.length; // all done
-
-        steps.forEach((s, i) => {
-            const el = document.getElementById(s.id);
-            if (!el) return;
-            el.classList.remove('done', 'active');
-            if (s.done) el.classList.add('done');
-            else if (i === activeIdx) el.classList.add('active');
-        });
-    }
-
-    // ═══════════════════════════════════════════════
     //  PHASE 5 — UNDO / REDO
     // ═══════════════════════════════════════════════
 
     function initUndoRedo() {
         const btnUndo = document.getElementById('btnUndo');
         const btnRedo = document.getElementById('btnRedo');
+        const sideUndoBtn = document.getElementById('sideUndo');
+        const sideRedoBtn = document.getElementById('sideRedo');
 
         if (btnUndo) btnUndo.addEventListener('click', doUndo);
         if (btnRedo) btnRedo.addEventListener('click', doRedo);
+        if (sideUndoBtn) sideUndoBtn.addEventListener('click', doUndo);
+        if (sideRedoBtn) sideRedoBtn.addEventListener('click', doRedo);
 
         document.addEventListener('keydown', (e) => {
             if (!currentProject) return;
@@ -2021,8 +2333,12 @@
     function setUndoRedoState(canUndo, canRedo) {
         const btnUndo = document.getElementById('btnUndo');
         const btnRedo = document.getElementById('btnRedo');
+        const sideUndoBtn = document.getElementById('sideUndo');
+        const sideRedoBtn = document.getElementById('sideRedo');
         if (btnUndo) btnUndo.disabled = !canUndo;
         if (btnRedo) btnRedo.disabled = !canRedo;
+        if (sideUndoBtn) sideUndoBtn.disabled = !canUndo;
+        if (sideRedoBtn) sideRedoBtn.disabled = !canRedo;
     }
 
     // ═══════════════════════════════════════════════
@@ -2329,16 +2645,38 @@
 
         liveProc = new AstroImageProcessor(canvas, histo);
 
-        // Update info text after every render
+        // HistogramPanel for LiveEdit
+        hpLive = new HistogramPanel(document.getElementById('liveHistoPanel'), {
+            mode: 'mono', height: 80,
+            zmin: 0.002, zmax: 0.999,
+            onChange(ch, zmin, zmax) {
+                if (liveProc && liveProc.loaded) {
+                    liveProc.setEdit('stretchBP', zmin * 100);
+                    liveProc.setEdit('stretchWP', zmax * 100);
+                }
+            },
+        });
+
+        // Update info text + feed histogram data after every render
         liveProc.onChange(() => {
             const info = document.getElementById('liveEditInfo');
             if (info && liveProc.loaded) {
                 info.textContent = `${liveProc.sourceWidth} × ${liveProc.sourceHeight} px`;
             }
+            // Feed source histogram to HistogramPanel
+            if (hpLive && liveProc._srcData) {
+                const d = liveProc._srcData.data;
+                const counts = new Float64Array(256);
+                for (let i = 0; i < d.length; i += 4) {
+                    const lum = Math.round(d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114);
+                    counts[Math.min(255, lum)]++;
+                }
+                hpLive.setHistogram('L', Array.from(counts));
+            }
         });
 
         // Load button
-        document.getElementById('btnLiveEditLoad').addEventListener('click', loadLiveEditImage);
+        document.getElementById('sideLiveLoad').addEventListener('click', loadLiveEditImage);
 
         // Reset
         document.getElementById('btnLiveEditReset').addEventListener('click', () => {
@@ -2351,15 +2689,13 @@
         document.getElementById('btnLiveEditExport').addEventListener('click', exportLiveEdit);
 
         // Stretch method toggling
-        document.getElementById('liveEditStretch').addEventListener('change', (ev) => {
+        document.getElementById('sideLiveStretch').addEventListener('change', (ev) => {
             liveProc.setEdit('stretch', ev.target.value);
             showLiveStretchParams(ev.target.value);
         });
 
         // Bind all sliders
         const sliders = {
-            leBP:         { key: 'stretchBP',   fmt: v => parseFloat(v).toFixed(1) },
-            leWP:         { key: 'stretchWP',   fmt: v => parseFloat(v).toFixed(1) },
             leBeta:       { key: 'stretchBeta',  fmt: v => v },
             leMid:        { key: 'stretchMid',   fmt: v => parseFloat(v).toFixed(2) },
             leScale:      { key: 'stretchScale', fmt: v => v },
@@ -2420,8 +2756,12 @@
     function syncLiveEditSlidersFromProc() {
         if (!liveProc) return;
         const e = liveProc.edits;
+        // Sync HistogramPanel for BP/WP
+        if (hpLive) {
+            hpLive.setValues('L', e.stretchBP / 100, e.stretchWP / 100);
+        }
         const sets = {
-            leBP: e.stretchBP, leWP: e.stretchWP, leBeta: e.stretchBeta,
+            leBeta: e.stretchBeta,
             leMid: e.stretchMid, leScale: e.stretchScale,
             leBrightness: e.brightness, leContrast: e.contrast,
             leExposure: e.exposure, leGamma: e.gamma,
@@ -2436,13 +2776,13 @@
                 if (valEl) valEl.textContent = typeof val === 'number' && !Number.isInteger(val) ? val.toFixed(2) : val;
             }
         });
-        const stretchEl = document.getElementById('liveEditStretch');
+        const stretchEl = document.getElementById('sideLiveStretch');
         if (stretchEl) { stretchEl.value = e.stretch; showLiveStretchParams(e.stretch); }
     }
 
     async function loadLiveEditImage() {
         if (!currentProject) { showToast('Abre un proyecto primero', 'warning'); return; }
-        const sel = document.getElementById('liveEditSource').value;
+        const sel = document.getElementById('sideLiveSource').value;
         if (!sel) { showToast('Selecciona una imagen', 'warning'); return; }
 
         const spinner = document.getElementById('liveEditLoadSpinner');
@@ -2452,7 +2792,7 @@
         try {
             let b64 = null;
             const pid = currentProject.id;
-            const stretch = document.getElementById('liveEditStretch').value;
+            const stretch = document.getElementById('sideLiveStretch').value;
 
             if (sel === 'color_composite') {
                 const d = await api(`/projects/${pid}/preview/color`);
@@ -2461,19 +2801,19 @@
             } else if (sel.startsWith('stacked/')) {
                 const ch = sel.replace('stacked/', '');
                 const channels = JSON.stringify({ r: ch });
-                const d = await api(`/projects/${pid}/preview/color?channels=${encodeURIComponent(channels)}&stretch=${stretch}&max_size=2000`);
+                const d = await api(`/projects/${pid}/preview/color?channels=${encodeURIComponent(channels)}&stretch=${stretch}&max_size=${globalMaxSize}`);
                 if (d.error) throw new Error(d.error);
                 b64 = d.image;
             } else {
                 const [type, imgId] = sel.split('/');
-                const d = await api(`/projects/${pid}/preview/${type}/${imgId}?stretch=${stretch}&max_size=2000`);
+                const d = await api(`/projects/${pid}/preview/${type}/${imgId}?stretch=${stretch}&max_size=${globalMaxSize}`);
                 if (d.error) throw new Error(d.error);
                 b64 = d.image;
             }
 
             await liveProc.loadFromBase64(b64);
             // Apply the selected stretch as default
-            const stretchMethod = document.getElementById('liveEditStretch').value;
+            const stretchMethod = document.getElementById('sideLiveStretch').value;
             if (stretchMethod !== 'none') {
                 liveProc.setEdit('stretch', stretchMethod);
             }
@@ -2488,29 +2828,64 @@
 
     function populateLiveEditSource() {
         if (!currentProject) return;
-        const select = document.getElementById('liveEditSource');
+        const select = document.getElementById('sideLiveSource');
         if (!select) return;
         const imgs = currentProject.images || {};
         let html = '<option value="" disabled selected>— Selecciona una imagen —</option>';
 
-        // Stacked channels first
-        const stacked = currentProject.stacked_channels || {};
-        Object.keys(stacked).forEach(ch => {
+        // Stacked results
+        const stacks = currentProject.stacked_results || [];
+        if (stacks.length) {
+            stacks.forEach(s => {
+                html += `<option value="stacked/${s.id}">📊 Apilado: ${escHtml(s.filename)}</option>`;
+            });
+        }
+        // Legacy: stacked channels (old format fallback)
+        const stackedCh = currentProject.stacked_channels || {};
+        Object.keys(stackedCh).forEach(ch => {
             html += `<option value="stacked/${ch}">📊 Apilado: ${escHtml(ch)}</option>`;
         });
 
-        // Color composite
-        if (currentProject.color_composite) {
+        // Processed results
+        const procs = currentProject.processed_results || [];
+        if (procs.length) {
+            procs.forEach(p => {
+                html += `<option value="processed/${p.id}">⚙️ ${escHtml(p.filename)}</option>`;
+            });
+        }
+
+        // Color composites
+        const composites = currentProject.color_composites || [];
+        if (composites.length) {
+            composites.forEach(c => {
+                html += `<option value="color_composite/${c.id}">🎨 ${escHtml(c.filename)}</option>`;
+            });
+        }
+        // Legacy single color composite
+        if (!composites.length && currentProject.color_composite) {
             html += `<option value="color_composite">🎨 Composición de color</option>`;
         }
 
-        // Individual images
+        // Individual images — all types
+        const typeLabels = { calibrated: 'Calibrado', aligned: 'Alineado', light: 'Light', dark: 'Dark', flat: 'Flat', bias: 'Bias' };
         ['calibrated', 'aligned', 'light', 'dark', 'flat', 'bias'].forEach(type => {
-            (imgs[type] || []).forEach(img => {
-                const name = img.original_name || img.id;
-                html += `<option value="${type}/${img.id}">${escHtml(name)} (${type})</option>`;
-            });
+            const list = imgs[type] || [];
+            if (list.length) {
+                list.forEach(img => {
+                    const name = img.original_name || img.filename || img.id;
+                    html += `<option value="${type}/${img.id}">${escHtml(name)} (${typeLabels[type]})</option>`;
+                });
+            }
         });
+
+        // Aligned lights from separate array
+        const aligned = currentProject.aligned_lights || [];
+        if (aligned.length && !(imgs.aligned && imgs.aligned.length)) {
+            aligned.forEach(a => {
+                const name = a.filename.replace(/^aligned_[a-f0-9]+_/, '');
+                html += `<option value="aligned/${a.id}">${escHtml(name)} (Alineado)</option>`;
+            });
+        }
 
         select.innerHTML = html;
     }

@@ -57,6 +57,85 @@ def get_palettes() -> dict:
     return {k: {"label": v["label"], "description": v["description"]} for k, v in PALETTES.items()}
 
 
+# ── Palette transform matrices ──────────────────────────────────────
+
+PALETTE_TRANSFORMS = {
+    # Standard RGB palettes — identity transform
+    "RGB": None,
+    "LRGB": None,
+    # Hubble palette: SII→R, Hα→G, OIII→B  (already direct mapping)
+    "SHO": None,
+    # HOO bicolor: Hα→C1, OIII→C2 → R=C1, G=C2, B=C2
+    "HOO": {
+        "input_labels": ["Hα", "OIII", "—"],
+        "matrix": [
+            [1.0, 0.0, 0.0],  # R = C1
+            [0.0, 1.0, 0.0],  # G = C2
+            [0.0, 1.0, 0.0],  # B = C2
+        ],
+    },
+    # HOS: Hα→C1, OIII→C2, SII→C3
+    "HOS": {
+        "input_labels": ["Hα", "OIII", "SII"],
+        "matrix": [
+            [0.0, 0.0, 1.0],  # R = SII
+            [1.0, 0.0, 0.0],  # G = Hα
+            [0.0, 1.0, 0.0],  # B = OIII
+        ],
+    },
+    # Foraxx palette: Hα→C1, OIII→C2, SII→C3
+    "Foraxx": {
+        "input_labels": ["Hα", "OIII", "SII"],
+        "matrix": [
+            [0.6, 0.0, 0.4],   # R = 0.6*Hα + 0.4*SII
+            [1.0, 0.0, 0.0],   # G = Hα
+            [0.0, 0.85, 0.15], # B = 0.85*OIII + 0.15*Hα
+        ],
+    },
+    # CFHT palette: SII→C1, Hα→C2, OIII→C3
+    "CFHT": {
+        "input_labels": ["SII", "Hα", "OIII"],
+        "matrix": [
+            [1.0, 0.5, 0.0],  # R = SII + 0.5*Hα
+            [0.0, 1.0, 0.0],  # G = Hα
+            [0.0, 0.0, 1.0],  # B = OIII
+        ],
+    },
+    # HαRGB: Hα→C1, R→C2, G=C3… but this needs 4+ channels, simplified to 3-input
+    "HaRGB": {
+        "input_labels": ["Hα+R", "G", "B"],
+        "matrix": [
+            [1.0, 0.0, 0.0],  # R = C1 (Hα+R blended)
+            [0.0, 1.0, 0.0],  # G = C2
+            [0.0, 0.0, 1.0],  # B = C3
+        ],
+    },
+}
+
+
+def get_palette_info() -> dict:
+    """Return palette info for the frontend."""
+    info = {}
+    for key, palette in PALETTES.items():
+        transform = PALETTE_TRANSFORMS.get(key)
+        info[key] = {
+            "label": palette["label"],
+            "description": palette["description"],
+            "has_transform": transform is not None,
+            "input_labels": transform["input_labels"] if transform else ["R", "G", "B"],
+        }
+    # Add extra palettes not in PALETTES
+    for key in PALETTE_TRANSFORMS:
+        if key not in info:
+            info[key] = {
+                "label": key,
+                "description": "",
+                "has_transform": PALETTE_TRANSFORMS[key] is not None,
+                "input_labels": PALETTE_TRANSFORMS[key]["input_labels"] if PALETTE_TRANSFORMS[key] else ["R", "G", "B"],
+            }
+    return info
+
+
 # ── Color composition ───────────────────────────────────────────────
 
 def compose_color(
@@ -69,6 +148,8 @@ def compose_color(
     auto_balance: bool = True,
     stretch_method: str | None = None,
     stretch_params: dict | None = None,
+    channel_weights: dict | None = None,
+    palette: str | None = None,
 ) -> dict:
     """
     Create a color image by assigning images to R, G, B channels.
@@ -86,6 +167,8 @@ def compose_color(
     auto_balance : auto-balance channel backgrounds
     stretch_method : optional stretch to apply before composition
     stretch_params : params for the stretch
+    channel_weights : {"C1": 1.0, "C2": 1.0, "C3": 1.0} multipliers per input channel
+    palette : palette key for non-RGB transforms (e.g. "HOO", "Foraxx", "HOS")
     """
     project = load_project(project_id)
     if project is None:
@@ -138,6 +221,26 @@ def compose_color(
             for ch_name in ("R", "G", "B"):
                 if np.any(channel_data[ch_name] > 0):
                     channel_data[ch_name] = fn(channel_data[ch_name], sp)
+
+    # Apply channel weights (C1/C2/C3 multipliers mapped to R/G/B)
+    if channel_weights:
+        weight_map = {"C1": "R", "C2": "G", "C3": "B"}
+        for wk, ch_name in weight_map.items():
+            w = float(channel_weights.get(wk, 1.0))
+            if w != 1.0:
+                channel_data[ch_name] = channel_data[ch_name] * w
+
+    # Palette transform: combine input channels → RGB using matrix
+    transform = PALETTE_TRANSFORMS.get(palette) if palette else None
+    if transform and transform.get("matrix"):
+        mat = np.array(transform["matrix"], dtype=np.float64)  # (3, 3)
+        # Input channels: R=C1, G=C2, B=C3
+        c1 = channel_data["R"]
+        c2 = channel_data["G"]
+        c3 = channel_data["B"]
+        channel_data["R"] = mat[0, 0] * c1 + mat[0, 1] * c2 + mat[0, 2] * c3
+        channel_data["G"] = mat[1, 0] * c1 + mat[1, 1] * c2 + mat[1, 2] * c3
+        channel_data["B"] = mat[2, 0] * c1 + mat[2, 1] * c2 + mat[2, 2] * c3
 
     # Normalize each channel to [0, 1]
     for ch_name in ("R", "G", "B"):
@@ -239,6 +342,8 @@ def compose_color(
         "auto_balance": auto_balance,
         "stretch_method": stretch_method,
         "channel_stats": ch_stats,
+        "channel_weights": channel_weights,
+        "palette": palette,
         "width": int(ref_shape[1]),
         "height": int(ref_shape[0]),
         "created": datetime.utcnow().isoformat(),
