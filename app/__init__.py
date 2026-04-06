@@ -22,10 +22,11 @@ def create_app() -> FastAPI:
         name="static",
     )
 
-    from .routes import fov, home, snr
+    from .routes import editor, fov, home, snr
 
     app.include_router(home.router)
     app.include_router(snr.router)
     app.include_router(fov.router)
+    app.include_router(editor.router)
 
     return app

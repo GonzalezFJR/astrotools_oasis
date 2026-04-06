@@ -1,0 +1,2214 @@
+{% extends "base.html" %}
+{% block title %}AstroEditor — Oasis AstroTools{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/editor.css">
+{% endblock %}
+
+{% block content %}
+<!-- ════════════════════════════════════════════════════════════════
+     SPLASH: project selection / creation (shown initially)
+     ════════════════════════════════════════════════════════════════ -->
+<div id="editorSplash" class="editor-splash">
+    <div class="splash-header text-center">
+        <h1><i class="bi bi-stars"></i> AstroEditor</h1>
+        <p class="text-secondary">
+            Plataforma de edición de astrofotografía paso a paso.
+            Crea un proyecto nuevo o abre uno existente para comenzar.
+        </p>
+    </div>
+
+    <div class="splash-body">
+        <!-- Create project form -->
+        <div class="splash-card">
+            <h3><i class="bi bi-plus-circle me-2"></i>Nuevo proyecto</h3>
+            <form id="createProjectForm" class="mt-3">
+                <div class="mb-3">
+                    <label for="projName" class="form-label">Nombre del proyecto <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="projName" placeholder="Ej: M42 Sesión Febrero" required>
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label for="projDate" class="form-label">Fecha de observación</label>
+                        <input type="date" class="form-control" id="projDate">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="projObject" class="form-label">Objeto</label>
+                        <input type="text" class="form-control" id="projObject" placeholder="Ej: M42">
+                    </div>
+                </div>
+                <div class="row g-2 mt-1">
+                    <div class="col-md-6">
+                        <label for="projTelescope" class="form-label">Telescopio</label>
+                        <input type="text" class="form-control" id="projTelescope" placeholder="Ej: Newton 200/1000">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="projObserver" class="form-label">Observador</label>
+                        <input type="text" class="form-control" id="projObserver" placeholder="Tu nombre">
+                    </div>
+                </div>
+                <div class="row g-2 mt-1">
+                    <div class="col-md-6">
+                        <label for="projLocation" class="form-label">Ubicación</label>
+                        <input type="text" class="form-control" id="projLocation" placeholder="Ej: Observatorio Sierra Norte">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="projNotes" class="form-label">Notas</label>
+                        <input type="text" class="form-control" id="projNotes" placeholder="Notas adicionales">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-accent mt-3 w-100">
+                    <i class="bi bi-rocket-takeoff me-1"></i> Crear proyecto
+                </button>
+            </form>
+        </div>
+
+        <!-- Existing projects -->
+        <div class="splash-card">
+            <h3><i class="bi bi-folder2-open me-2"></i>Proyectos existentes</h3>
+            <div id="projectsList" class="mt-3">
+                <div class="text-center text-secondary py-4">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    Cargando proyectos...
+                </div>
+            </div>
+        </div>
+
+        <!-- Guided tutorials -->
+        <div class="splash-card splash-tutorials">
+            <h3><i class="bi bi-mortarboard me-2"></i>Tutoriales guiados</h3>
+            <p class="text-secondary mb-3">Aprende astrofotografía paso a paso con datos reales.</p>
+            <div id="tutorialsList" class="tutorials-grid">
+                <div class="text-center text-secondary py-3">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    Cargando tutoriales...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     WORKSPACE: main editor layout (hidden until project loaded)
+     ════════════════════════════════════════════════════════════════ -->
+<div id="editorWorkspace" class="editor-workspace" style="display:none;">
+
+    <!-- Top tab bar -->
+    <div class="editor-topbar">
+        <div class="editor-topbar-tabs">
+            <button class="etab active" data-tab="tab-project">
+                <i class="bi bi-folder2"></i><span>Proyecto</span>
+            </button>
+            <button class="etab" data-tab="tab-images">
+                <i class="bi bi-images"></i><span>Imágenes</span>
+            </button>
+            <button class="etab disabled" data-tab="tab-calibration" data-needs="light">
+                <i class="bi bi-wrench-adjustable"></i><span>Calibración</span>
+            </button>
+            <button class="etab disabled" data-tab="tab-alignment" data-needs="light">
+                <i class="bi bi-arrows-move"></i><span>Alineamiento</span>
+            </button>
+            <button class="etab disabled" data-tab="tab-stacking" data-needs="light">
+                <i class="bi bi-layers"></i><span>Apilado</span>
+            </button>
+            <button class="etab disabled" data-tab="tab-processing" data-needs="light">
+                <i class="bi bi-sliders"></i><span>Procesado</span>
+            </button>
+            <button class="etab disabled" data-tab="tab-color" data-needs="light">
+                <i class="bi bi-palette"></i><span>Color</span>
+            </button>
+            <button class="etab" data-tab="tab-liveedit">
+                <i class="bi bi-brush"></i><span>Edición</span>
+            </button>
+            <button class="etab" data-tab="tab-preview">
+                <i class="bi bi-eye"></i><span>Previsualización</span>
+            </button>
+            <button class="etab" data-tab="tab-export">
+                <i class="bi bi-download"></i><span>Exportar</span>
+            </button>
+        </div>
+        <div class="editor-topbar-actions">
+            <button class="btn btn-sm btn-outline-secondary" id="btnUndo" title="Deshacer (Ctrl+Z)" disabled>
+                <i class="bi bi-arrow-counterclockwise"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" id="btnRedo" title="Rehacer (Ctrl+Y)" disabled>
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-info" id="btnTutorial" title="Modo tutorial">
+                <i class="bi bi-mortarboard"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" id="btnComparator" title="Comparador antes/después">
+                <i class="bi bi-layout-split"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" id="btnSaveProject" title="Guardar proyecto">
+                <i class="bi bi-save"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" id="btnCloseProject" title="Cerrar proyecto">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main content area -->
+    <div class="editor-main">
+
+        <!-- Sidebar -->
+        <aside class="editor-sidebar" id="editorSidebar">
+            <div class="sidebar-section">
+                <h6 class="sidebar-title"><i class="bi bi-info-circle me-1"></i> Proyecto</h6>
+                <div id="sidebarProjectInfo" class="sidebar-info">
+                    <div class="sidebar-info-item">
+                        <span class="label">Nombre</span>
+                        <span class="value" id="sideProjectName">—</span>
+                    </div>
+                    <div class="sidebar-info-item">
+                        <span class="label">Objeto</span>
+                        <span class="value" id="sideProjectObject">—</span>
+                    </div>
+                </div>
+            </div>
+            <hr class="sidebar-divider">
+            <div class="sidebar-section">
+                <h6 class="sidebar-title"><i class="bi bi-bar-chart me-1"></i> Resumen</h6>
+                <div class="sidebar-stats" id="sidebarStats">
+                    <div class="stat-row">
+                        <span class="stat-icon"><i class="bi bi-sun"></i></span>
+                        <span class="stat-label">Lights</span>
+                        <span class="stat-value" id="statLights">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-icon"><i class="bi bi-moon"></i></span>
+                        <span class="stat-label">Darks</span>
+                        <span class="stat-value" id="statDarks">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-icon"><i class="bi bi-brightness-high"></i></span>
+                        <span class="stat-label">Flats</span>
+                        <span class="stat-value" id="statFlats">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-icon"><i class="bi bi-lightning"></i></span>
+                        <span class="stat-label">Bias</span>
+                        <span class="stat-value" id="statBias">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-icon"><i class="bi bi-question-circle"></i></span>
+                        <span class="stat-label">Sin asignar</span>
+                        <span class="stat-value" id="statUnclassified">0</span>
+                    </div>
+                </div>
+            </div>
+            <hr class="sidebar-divider">
+            <div class="sidebar-section">
+                <h6 class="sidebar-title"><i class="bi bi-lightbulb me-1"></i> Ayuda</h6>
+                <div class="sidebar-help" id="sidebarHelp">
+                    <p class="text-secondary small">Selecciona una pestaña para ver información contextual sobre el paso actual.</p>
+                </div>
+            </div>
+            <hr class="sidebar-divider">
+            <div class="sidebar-section">
+                <h6 class="sidebar-title"><i class="bi bi-check2-square me-1"></i> Progreso</h6>
+                <div class="pipeline-progress" id="pipelineProgress">
+                    <div class="pp-step" data-step="upload"><i class="bi bi-images"></i><span>Carga</span></div>
+                    <div class="pp-arrow"><i class="bi bi-chevron-right"></i></div>
+                    <div class="pp-step" data-step="calibration"><i class="bi bi-wrench-adjustable"></i><span>Calibración</span></div>
+                    <div class="pp-arrow"><i class="bi bi-chevron-right"></i></div>
+                    <div class="pp-step" data-step="alignment"><i class="bi bi-arrows-move"></i><span>Alineamiento</span></div>
+                    <div class="pp-arrow"><i class="bi bi-chevron-right"></i></div>
+                    <div class="pp-step" data-step="stacking"><i class="bi bi-layers"></i><span>Apilado</span></div>
+                    <div class="pp-arrow"><i class="bi bi-chevron-right"></i></div>
+                    <div class="pp-step" data-step="processing"><i class="bi bi-sliders"></i><span>Procesado</span></div>
+                    <div class="pp-arrow"><i class="bi bi-chevron-right"></i></div>
+                    <div class="pp-step" data-step="export"><i class="bi bi-download"></i><span>Exportar</span></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Central content -->
+        <div class="editor-content" id="editorContent">
+
+            <!-- ── TAB: Proyecto ──────────────────────────────── -->
+            <div class="editor-tab-pane active" id="tab-project">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-folder2"></i></div>
+                    <h2>Resumen del proyecto</h2>
+                    <p>Aquí puedes ver y editar los metadatos de tu proyecto de astrofotografía.</p>
+                </div>
+                <div class="editor-card">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-pencil-square me-2"></i>Metadatos del proyecto</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Nombre</label>
+                                <input type="text" class="form-control" id="editProjName">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Fecha</label>
+                                <input type="date" class="form-control" id="editProjDate">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Objeto</label>
+                                <input type="text" class="form-control" id="editProjObject">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Telescopio</label>
+                                <input type="text" class="form-control" id="editProjTelescope">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Observador</label>
+                                <input type="text" class="form-control" id="editProjObserver">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Ubicación</label>
+                                <input type="text" class="form-control" id="editProjLocation">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Notas</label>
+                                <textarea class="form-control" id="editProjNotes" rows="2"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <button class="btn btn-accent" id="btnUpdateProject">
+                                    <i class="bi bi-check-lg me-1"></i> Guardar cambios
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Image summary table -->
+                <div class="editor-card mt-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-table me-2"></i>Resumen de imágenes</h5>
+                    </div>
+                    <div class="editor-card-body" id="projectSummaryTable">
+                        <p class="text-secondary">Carga imágenes en la pestaña <strong>Imágenes</strong> para ver el resumen aquí.</p>
+                    </div>
+                </div>
+
+                <!-- Processing timeline -->
+                <div class="editor-card mt-3">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#processingLogBody">
+                        <h5><i class="bi bi-clock-history me-2"></i>Línea temporal del procesado</h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="processingLogBody">
+                        <div class="editor-card-body">
+                            <div class="processing-timeline" id="processingLogContent">
+                                <p class="text-secondary">Aún no se han realizado operaciones de procesado.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Imágenes ──────────────────────────────── -->
+            <div class="editor-tab-pane" id="tab-images">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-images"></i></div>
+                    <h2>Gestión de imágenes</h2>
+                    <p>Carga tus imágenes astronómicas y clasifícalas por tipo. Se aceptan formatos
+                       <strong>FITS</strong>, <strong>TIFF</strong>, <strong>CR2/CR3</strong>, <strong>PNG</strong> y <strong>JPG</strong>.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Qué son los tipos de frame?</summary>
+                        <div class="tab-help-content">
+                            <div class="help-grid">
+                                <div class="help-item">
+                                    <h6><i class="bi bi-sun me-1"></i> Light</h6>
+                                    <p>Las tomas principales del objeto astronómico. Son las imágenes "reales" que contienen la señal que quieres capturar.</p>
+                                </div>
+                                <div class="help-item">
+                                    <h6><i class="bi bi-moon me-1"></i> Dark</h6>
+                                    <p>Tomas con el obturador cerrado, con el mismo tiempo de exposición y temperatura que los lights. Capturan el <strong>ruido térmico</strong> del sensor.</p>
+                                </div>
+                                <div class="help-item">
+                                    <h6><i class="bi bi-brightness-high me-1"></i> Flat</h6>
+                                    <p>Tomas de una superficie uniformemente iluminada. Corrigen el <strong>viñeteo</strong> (oscurecimiento en las esquinas) y las <strong>motas de polvo</strong> en el sensor.</p>
+                                </div>
+                                <div class="help-item">
+                                    <h6><i class="bi bi-lightning me-1"></i> Bias</h6>
+                                    <p>Tomas con exposición mínima (~0s) y obturador cerrado. Capturan el <strong>ruido de lectura</strong> base del sensor electrónico.</p>
+                                </div>
+                            </div>
+                            <div class="alert alert-info mt-2 mb-0">
+                                <i class="bi bi-info-circle me-1"></i>
+                                <strong>Solo necesitas al menos un Light para continuar.</strong> Los darks, flats y bias son opcionales pero mejoran significativamente el resultado final.
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Upload zone -->
+                <div class="editor-card">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-cloud-arrow-up me-2"></i>Subir imágenes</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="upload-controls mb-3">
+                            <label class="form-label">Tipo de frame (opcional — se intentará detectar automáticamente)</label>
+                            <div class="frame-type-selector">
+                                <button class="ftype-btn active" data-type="">
+                                    <i class="bi bi-magic me-1"></i> Auto-detectar
+                                </button>
+                                <button class="ftype-btn" data-type="light">
+                                    <i class="bi bi-sun me-1"></i> Light
+                                </button>
+                                <button class="ftype-btn" data-type="dark">
+                                    <i class="bi bi-moon me-1"></i> Dark
+                                </button>
+                                <button class="ftype-btn" data-type="flat">
+                                    <i class="bi bi-brightness-high me-1"></i> Flat
+                                </button>
+                                <button class="ftype-btn" data-type="bias">
+                                    <i class="bi bi-lightning me-1"></i> Bias
+                                </button>
+                            </div>
+                        </div>
+                        <div class="upload-dropzone" id="uploadDropzone">
+                            <i class="bi bi-cloud-arrow-up"></i>
+                            <p>Arrastra tus archivos aquí o <strong>haz clic</strong> para seleccionar</p>
+                            <p class="small text-secondary">FITS, TIFF, CR2, CR3, PNG, JPG</p>
+                            <input type="file" id="fileInput" multiple accept=".fits,.fit,.fts,.png,.jpg,.jpeg,.tif,.tiff,.cr2,.cr3" style="display:none;">
+                        </div>
+                        <!-- Upload progress -->
+                        <div id="uploadProgress" style="display:none;" class="mt-3">
+                            <div class="d-flex align-items-center mb-2">
+                                <div class="spinner-border spinner-border-sm text-accent me-2" role="status"></div>
+                                <span id="uploadProgressText">Subiendo...</span>
+                            </div>
+                            <div class="progress">
+                                <div class="progress-bar bg-accent" id="uploadProgressBar" role="progressbar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Image tables by category -->
+                <div class="image-categories mt-3" id="imageCategories">
+                    <!-- Lights -->
+                    <div class="editor-card image-category-card" data-category="light">
+                        <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#cat-light">
+                            <h5>
+                                <i class="bi bi-sun me-2"></i>Lights
+                                <span class="badge bg-accent ms-2" id="badge-light">0</span>
+                            </h5>
+                            <i class="bi bi-chevron-down"></i>
+                        </div>
+                        <div class="collapse show" id="cat-light">
+                            <div class="editor-card-body p-0">
+                                <div class="image-table-wrapper">
+                                    <table class="image-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="col-thumb"></th>
+                                                <th>Archivo</th>
+                                                <th>Formato</th>
+                                                <th>Dimensiones</th>
+                                                <th>Exposición</th>
+                                                <th>Filtro</th>
+                                                <th>Ganancia</th>
+                                                <th>Binning</th>
+                                                <th class="col-actions">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="table-light"></tbody>
+                                    </table>
+                                    <div class="empty-category" id="empty-light">
+                                        <i class="bi bi-sun"></i>
+                                        <p>No hay lights cargados</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Darks -->
+                    <div class="editor-card image-category-card" data-category="dark">
+                        <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#cat-dark">
+                            <h5>
+                                <i class="bi bi-moon me-2"></i>Darks
+                                <span class="badge bg-secondary ms-2" id="badge-dark">0</span>
+                            </h5>
+                            <i class="bi bi-chevron-down"></i>
+                        </div>
+                        <div class="collapse" id="cat-dark">
+                            <div class="editor-card-body p-0">
+                                <div class="image-table-wrapper">
+                                    <table class="image-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="col-thumb"></th>
+                                                <th>Archivo</th>
+                                                <th>Formato</th>
+                                                <th>Dimensiones</th>
+                                                <th>Exposición</th>
+                                                <th>Ganancia</th>
+                                                <th>Binning</th>
+                                                <th class="col-actions">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="table-dark"></tbody>
+                                    </table>
+                                    <div class="empty-category" id="empty-dark">
+                                        <i class="bi bi-moon"></i>
+                                        <p>No hay darks cargados</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Flats -->
+                    <div class="editor-card image-category-card" data-category="flat">
+                        <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#cat-flat">
+                            <h5>
+                                <i class="bi bi-brightness-high me-2"></i>Flats
+                                <span class="badge bg-secondary ms-2" id="badge-flat">0</span>
+                            </h5>
+                            <i class="bi bi-chevron-down"></i>
+                        </div>
+                        <div class="collapse" id="cat-flat">
+                            <div class="editor-card-body p-0">
+                                <div class="image-table-wrapper">
+                                    <table class="image-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="col-thumb"></th>
+                                                <th>Archivo</th>
+                                                <th>Formato</th>
+                                                <th>Dimensiones</th>
+                                                <th>Exposición</th>
+                                                <th>Filtro</th>
+                                                <th>Ganancia</th>
+                                                <th class="col-actions">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="table-flat"></tbody>
+                                    </table>
+                                    <div class="empty-category" id="empty-flat">
+                                        <i class="bi bi-brightness-high"></i>
+                                        <p>No hay flats cargados</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bias -->
+                    <div class="editor-card image-category-card" data-category="bias">
+                        <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#cat-bias">
+                            <h5>
+                                <i class="bi bi-lightning me-2"></i>Bias
+                                <span class="badge bg-secondary ms-2" id="badge-bias">0</span>
+                            </h5>
+                            <i class="bi bi-chevron-down"></i>
+                        </div>
+                        <div class="collapse" id="cat-bias">
+                            <div class="editor-card-body p-0">
+                                <div class="image-table-wrapper">
+                                    <table class="image-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="col-thumb"></th>
+                                                <th>Archivo</th>
+                                                <th>Formato</th>
+                                                <th>Dimensiones</th>
+                                                <th>Ganancia</th>
+                                                <th>Binning</th>
+                                                <th class="col-actions">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="table-bias"></tbody>
+                                    </table>
+                                    <div class="empty-category" id="empty-bias">
+                                        <i class="bi bi-lightning"></i>
+                                        <p>No hay bias cargados</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Unclassified -->
+                    <div class="editor-card image-category-card" data-category="unclassified">
+                        <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#cat-unclassified">
+                            <h5>
+                                <i class="bi bi-question-circle me-2"></i>Sin clasificar
+                                <span class="badge bg-warning text-dark ms-2" id="badge-unclassified">0</span>
+                            </h5>
+                            <i class="bi bi-chevron-down"></i>
+                        </div>
+                        <div class="collapse" id="cat-unclassified">
+                            <div class="editor-card-body p-0">
+                                <div class="image-table-wrapper">
+                                    <table class="image-table">
+                                        <thead>
+                                            <tr>
+                                                <th class="col-thumb"></th>
+                                                <th>Archivo</th>
+                                                <th>Formato</th>
+                                                <th>Dimensiones</th>
+                                                <th>Exposición</th>
+                                                <th class="col-actions">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="table-unclassified"></tbody>
+                                    </table>
+                                    <div class="empty-category" id="empty-unclassified">
+                                        <i class="bi bi-question-circle"></i>
+                                        <p>No hay imágenes sin clasificar</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Calibración ─────────────────────────── -->
+            <div class="editor-tab-pane" id="tab-calibration">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-wrench-adjustable"></i></div>
+                    <h2>Calibración</h2>
+                    <p>Crea master darks, flats y bias para corregir tus lights. Sigue los pasos en orden para obtener los mejores resultados.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Qué es la calibración?</summary>
+                        <div class="tab-help-content">
+                            <p>La calibración elimina artefactos del sensor de tu imagen. El proceso sigue estos pasos:</p>
+                            <ol>
+                                <li><strong>Master Bias</strong> — Media/mediana de tus bias. Captura el patrón de lectura del sensor.</li>
+                                <li><strong>Master Dark</strong> — Media/mediana de (darks − master bias). Captura el ruido térmico.</li>
+                                <li><strong>Master Flat</strong> — Media/mediana de (flats − master bias), normalizado. Corrige viñeteo y polvo.</li>
+                                <li><strong>Light calibrado</strong> = (light − master dark) / master flat</li>
+                            </ol>
+                            <div class="alert alert-info mt-2 mb-0">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Los pasos son opcionales: si no tienes darks, flats o bias, puedes saltarlos. Solo se aplican los masters disponibles.
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Calibration status overview -->
+                <div class="editor-card mb-3" id="calStatusCard">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-clipboard-check me-2"></i>Estado de calibración</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="cal-status-grid" id="calStatusGrid">
+                            <div class="cal-status-item" id="calStatusBias">
+                                <div class="cal-status-icon pending"><i class="bi bi-lightning"></i></div>
+                                <div class="cal-status-info">
+                                    <div class="cal-status-label">Master Bias</div>
+                                    <div class="cal-status-detail" id="calStatusBiasDetail">Sin crear</div>
+                                </div>
+                            </div>
+                            <div class="cal-status-arrow"><i class="bi bi-arrow-right"></i></div>
+                            <div class="cal-status-item" id="calStatusDark">
+                                <div class="cal-status-icon pending"><i class="bi bi-moon"></i></div>
+                                <div class="cal-status-info">
+                                    <div class="cal-status-label">Master Dark</div>
+                                    <div class="cal-status-detail" id="calStatusDarkDetail">Sin crear</div>
+                                </div>
+                            </div>
+                            <div class="cal-status-arrow"><i class="bi bi-arrow-right"></i></div>
+                            <div class="cal-status-item" id="calStatusFlat">
+                                <div class="cal-status-icon pending"><i class="bi bi-brightness-high"></i></div>
+                                <div class="cal-status-info">
+                                    <div class="cal-status-label">Master Flat</div>
+                                    <div class="cal-status-detail" id="calStatusFlatDetail">Sin crear</div>
+                                </div>
+                            </div>
+                            <div class="cal-status-arrow"><i class="bi bi-arrow-right"></i></div>
+                            <div class="cal-status-item" id="calStatusLights">
+                                <div class="cal-status-icon pending"><i class="bi bi-sun"></i></div>
+                                <div class="cal-status-info">
+                                    <div class="cal-status-label">Calibrar Lights</div>
+                                    <div class="cal-status-detail" id="calStatusLightsDetail">Sin calibrar</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 1: Master Bias -->
+                <div class="editor-card mb-3 cal-step-card" id="calStepBias">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#calBiasBody">
+                        <h5><span class="step-badge">1</span> <i class="bi bi-lightning me-1"></i> Master Bias</h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse show" id="calBiasBody">
+                        <div class="editor-card-body">
+                            <p class="text-secondary small mb-3">
+                                Combina tus frames de bias para crear un master bias. Se usará para corregir el ruido de lectura en darks, flats y lights.
+                            </p>
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-3">
+                                    <label class="form-label">Método de combinación</label>
+                                    <select class="form-select form-select-sm" id="calBiasMethod">
+                                        <option value="median" selected>Mediana</option>
+                                        <option value="mean">Media</option>
+                                        <option value="sigma_clip">Sigma-clipping</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2" id="calBiasSigmaGroup">
+                                    <label class="form-label">Sigma</label>
+                                    <input type="number" class="form-control form-control-sm" id="calBiasSigma" value="3.0" min="1" max="10" step="0.5">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Bias disponibles</label>
+                                    <div class="cal-frame-count" id="calBiasCount">0 frames</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <button class="btn btn-accent btn-sm w-100" id="btnCreateMasterBias" disabled>
+                                        <i class="bi bi-play-fill me-1"></i> Crear Master Bias
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Master bias result -->
+                            <div id="calBiasResult" class="cal-result mt-3" style="display:none;"></div>
+                            <!-- Spinner -->
+                            <div id="calBiasSpinner" class="cal-spinner" style="display:none;">
+                                <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                                <span>Creando master bias...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Master Dark -->
+                <div class="editor-card mb-3 cal-step-card" id="calStepDark">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#calDarkBody">
+                        <h5><span class="step-badge">2</span> <i class="bi bi-moon me-1"></i> Master Dark</h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="calDarkBody">
+                        <div class="editor-card-body">
+                            <p class="text-secondary small mb-3">
+                                Combina tus frames de dark (opcionalmente restando el master bias) para crear un master dark que capture el ruido térmico.
+                            </p>
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-3">
+                                    <label class="form-label">Método</label>
+                                    <select class="form-select form-select-sm" id="calDarkMethod">
+                                        <option value="median" selected>Mediana</option>
+                                        <option value="mean">Media</option>
+                                        <option value="sigma_clip">Sigma-clipping</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Sigma</label>
+                                    <input type="number" class="form-control form-control-sm" id="calDarkSigma" value="3.0" min="1" max="10" step="0.5">
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="form-check mt-4">
+                                        <input class="form-check-input" type="checkbox" id="calDarkSubBias" checked>
+                                        <label class="form-check-label small" for="calDarkSubBias">Restar bias</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="cal-frame-count" id="calDarkCount">0 frames</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-accent btn-sm w-100" id="btnCreateMasterDark" disabled>
+                                        <i class="bi bi-play-fill me-1"></i> Crear Master Dark
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="calDarkResult" class="cal-result mt-3" style="display:none;"></div>
+                            <div id="calDarkSpinner" class="cal-spinner" style="display:none;">
+                                <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                                <span>Creando master dark...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Master Flat -->
+                <div class="editor-card mb-3 cal-step-card" id="calStepFlat">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#calFlatBody">
+                        <h5><span class="step-badge">3</span> <i class="bi bi-brightness-high me-1"></i> Master Flat</h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="calFlatBody">
+                        <div class="editor-card-body">
+                            <p class="text-secondary small mb-3">
+                                Combina tus frames de flat (opcionalmente restando el master bias). El resultado se normaliza para corregir variaciones de iluminación.
+                            </p>
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-3">
+                                    <label class="form-label">Método</label>
+                                    <select class="form-select form-select-sm" id="calFlatMethod">
+                                        <option value="median" selected>Mediana</option>
+                                        <option value="mean">Media</option>
+                                        <option value="sigma_clip">Sigma-clipping</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Sigma</label>
+                                    <input type="number" class="form-control form-control-sm" id="calFlatSigma" value="3.0" min="1" max="10" step="0.5">
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="form-check mt-4">
+                                        <input class="form-check-input" type="checkbox" id="calFlatSubBias" checked>
+                                        <label class="form-check-label small" for="calFlatSubBias">Restar bias</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="cal-frame-count" id="calFlatCount">0 frames</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-accent btn-sm w-100" id="btnCreateMasterFlat" disabled>
+                                        <i class="bi bi-play-fill me-1"></i> Crear Master Flat
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="calFlatResult" class="cal-result mt-3" style="display:none;"></div>
+                            <div id="calFlatSpinner" class="cal-spinner" style="display:none;">
+                                <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                                <span>Creando master flat...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 4: Calibrate Lights -->
+                <div class="editor-card mb-3 cal-step-card" id="calStepLights">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#calLightsBody">
+                        <h5><span class="step-badge">4</span> <i class="bi bi-sun me-1"></i> Calibrar Lights</h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="calLightsBody">
+                        <div class="editor-card-body">
+                            <p class="text-secondary small mb-3">
+                                Aplica los masters disponibles a tus lights: <code>calibrado = (light − master_dark) / master_flat</code>.
+                                También puedes activar la corrección de píxeles calientes.
+                            </p>
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="calUseDark" checked>
+                                        <label class="form-check-label small" for="calUseDark">Usar dark</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="calUseFlat" checked>
+                                        <label class="form-check-label small" for="calUseFlat">Usar flat</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="calHotPixel" checked>
+                                        <label class="form-check-label small" for="calHotPixel">Corr. hot pixels</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Hot px sigma</label>
+                                    <input type="number" class="form-control form-control-sm" id="calHotPixelSigma" value="5.0" min="1" max="20" step="0.5">
+                                </div>
+                                <div class="col-md-4">
+                                    <button class="btn btn-accent btn-sm w-100" id="btnCalibrateLights">
+                                        <i class="bi bi-play-fill me-1"></i> Calibrar Lights
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="calLightsResult" class="cal-result mt-3" style="display:none;"></div>
+                            <div id="calLightsSpinner" class="cal-spinner" style="display:none;">
+                                <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                                <span>Calibrando lights...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Calibrated lights table -->
+                <div class="editor-card" id="calLightsTableCard" style="display:none;">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#calLightsTableBody">
+                        <h5><i class="bi bi-check2-circle me-2"></i>Lights calibrados <span class="badge bg-success ms-2" id="calLightsBadge">0</span></h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse show" id="calLightsTableBody">
+                        <div class="editor-card-body p-0">
+                            <div class="image-table-wrapper">
+                                <table class="image-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-thumb"></th>
+                                            <th>Archivo original</th>
+                                            <th>Filtro</th>
+                                            <th>Exposición</th>
+                                            <th>Dark</th>
+                                            <th>Flat</th>
+                                            <th>Hot px</th>
+                                            <th>Media</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="calLightsTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Alineamiento ──────────────────────────── -->
+            <div class="editor-tab-pane" id="tab-alignment">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-arrows-move"></i></div>
+                    <h2>Alineamiento</h2>
+                    <p>Alinea tus lights usando estrellas de referencia para que todos los frames coincidan píxel a píxel.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Por qué alinear?</summary>
+                        <div class="tab-help-content">
+                            <p>Entre toma y toma, el telescopio se mueve ligeramente (error de seguimiento, flexiones mecánicas, derivas...).
+                               El alineamiento detecta estrellas en cada frame y calcula la transformación geométrica necesaria
+                               para que todos coincidan con un frame de referencia.</p>
+                            <p><strong>Métodos disponibles:</strong></p>
+                            <ul>
+                                <li><strong>Traslación</strong> — Solo desplazamiento en X e Y. Rápido, suficiente si el seguimiento es bueno.</li>
+                                <li><strong>Similitud</strong> — Traslación + rotación + escala. El más versátil.</li>
+                                <li><strong>Afín</strong> — Traslación + rotación + escala + cizalladura. Para campos muy distorsionados.</li>
+                            </ul>
+                            <div class="alert alert-info mt-2 mb-0">
+                                <i class="bi bi-info-circle me-1"></i>
+                                El frame de referencia se selecciona automáticamente como el de mayor calidad (más estrellas detectadas, más brillantes y más puntuales).
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Alignment config -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-gear me-2"></i>Configuración del alineamiento</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label">Método</label>
+                                <select class="form-select form-select-sm" id="alignMethod">
+                                    <option value="translation">Traslación</option>
+                                    <option value="similarity" selected>Similitud</option>
+                                    <option value="affine">Afín</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">σ detección</label>
+                                <input type="number" class="form-control form-control-sm" id="alignSigma" value="5.0" min="2" max="20" step="0.5"
+                                       title="Umbral en sigmas para la detección de estrellas. Menor = más estrellas detectadas.">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Descartar RMS ></label>
+                                <input type="number" class="form-control form-control-sm" id="alignDiscardRms" value="0" min="0" max="100" step="0.5"
+                                       title="Frames con RMS mayor a este valor se descartan. 0 = no descartar.">
+                            </div>
+                            <div class="col-md-2">
+                                <div class="form-check mt-4">
+                                    <input class="form-check-input" type="checkbox" id="alignUseCalibrated" checked>
+                                    <label class="form-check-label small" for="alignUseCalibrated">Usar calibrados</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-accent btn-sm w-100" id="btnAlignFrames">
+                                    <i class="bi bi-play-fill me-1"></i> Alinear Frames
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alignment spinner -->
+                <div id="alignSpinner" class="cal-spinner mb-3" style="display:none;">
+                    <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                    <span>Detectando estrellas y alineando frames... Esto puede tardar.</span>
+                </div>
+
+                <!-- Alignment results -->
+                <div id="alignResultsCard" class="editor-card mb-3" style="display:none;">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-check2-all me-2"></i>Resultados del alineamiento</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-3">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="alignStatAligned">0</div>
+                                    <div class="align-stat-label">Alineados</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="alignStatDiscarded">0</div>
+                                    <div class="align-stat-label">Descartados</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="alignStatMethod">—</div>
+                                    <div class="align-stat-label">Método</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="alignStatRef">—</div>
+                                    <div class="align-stat-label">Referencia</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Aligned frames table -->
+                <div id="alignTableCard" class="editor-card mb-3" style="display:none;">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#alignTableBody">
+                        <h5><i class="bi bi-table me-2"></i>Frames alineados <span class="badge bg-success ms-2" id="alignBadge">0</span></h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse show" id="alignTableBody">
+                        <div class="editor-card-body p-0">
+                            <div class="image-table-wrapper">
+                                <table class="image-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-thumb"></th>
+                                            <th>Archivo</th>
+                                            <th>Ref.</th>
+                                            <th>Estrellas</th>
+                                            <th>Matches</th>
+                                            <th>RMS</th>
+                                            <th>FWHM</th>
+                                            <th>Score</th>
+                                            <th>Filtro</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="alignTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Discarded frames -->
+                <div id="alignDiscardedCard" class="editor-card" style="display:none;">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#alignDiscardedBody">
+                        <h5><i class="bi bi-x-circle me-2"></i>Frames descartados <span class="badge bg-warning text-dark ms-2" id="alignDiscardedBadge">0</span></h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="alignDiscardedBody">
+                        <div class="editor-card-body p-0">
+                            <div class="image-table-wrapper">
+                                <table class="image-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Archivo</th>
+                                            <th>Motivo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="alignDiscardedTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Apilado ─────────────────────────────── -->
+            <div class="editor-tab-pane" id="tab-stacking">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-layers"></i></div>
+                    <h2>Apilado</h2>
+                    <p>Combina múltiples lights alineados para aumentar la señal y reducir el ruido.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Cómo funciona el apilado?</summary>
+                        <div class="tab-help-content">
+                            <p>El apilado combina N imágenes en una sola, mejorando el SNR en un factor de √N.</p>
+                            <p><strong>Métodos disponibles:</strong></p>
+                            <ul>
+                                <li><strong>Media</strong> — Promedio simple. Sensible a satélites y rayos cósmicos.</li>
+                                <li><strong>Mediana</strong> — Más robusto ante artefactos, pero pierde algo de SNR.</li>
+                                <li><strong>Sigma-clipping</strong> — Media descartando píxeles que se desvían mucho. El mejor compromiso.</li>
+                                <li><strong>Winsorizado</strong> — Reemplaza outliers en vez de descartarlos. Preserva más señal.</li>
+                                <li><strong>Máximo / Mínimo</strong> — Útil para efectos especiales (star trails, etc.).</li>
+                            </ul>
+                            <div class="alert alert-info mt-2 mb-0 small">
+                                <i class="bi bi-info-circle me-1"></i>
+                                <strong>Consejo:</strong> Sigma-clipping con σ=3 es el método más recomendado para la mayoría de casos.
+                                Normalizar iguala la mediana de todos los frames antes de combinarlos.
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Source info -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-info-circle me-2"></i>Origen de datos</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="stackStatAligned">0</div>
+                                    <div class="align-stat-label">Frames alineados</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="stackStatCalibrated">0</div>
+                                    <div class="align-stat-label">Frames calibrados</div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="stackStatLights">0</div>
+                                    <div class="align-stat-label">Lights originales</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stack config -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-gear me-2"></i>Configuración del apilado</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-2">
+                                <label class="form-label">Método</label>
+                                <select class="form-select form-select-sm" id="stackMethod">
+                                    <option value="mean">Media</option>
+                                    <option value="median">Mediana</option>
+                                    <option value="sigma_clip" selected>Sigma-clip</option>
+                                    <option value="winsorized">Winsorizado</option>
+                                    <option value="max">Máximo</option>
+                                    <option value="min">Mínimo</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Sigma (σ)</label>
+                                <input type="number" class="form-control form-control-sm" id="stackSigma" value="3.0" min="1" max="10" step="0.5"
+                                       title="Umbral sigma para sigma-clip / winsorizado">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Rechazo (%)</label>
+                                <input type="number" class="form-control form-control-sm" id="stackReject" value="0" min="0" max="50" step="5"
+                                       title="Descartar N% de peor calidad antes de apilar">
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check mb-1">
+                                    <input class="form-check-input" type="checkbox" id="stackNormalize" checked>
+                                    <label class="form-check-label small" for="stackNormalize">Normalizar medianas</label>
+                                </div>
+                                <div class="form-check mb-1">
+                                    <input class="form-check-input" type="checkbox" id="stackUseAligned" checked>
+                                    <label class="form-check-label small" for="stackUseAligned">Usar alineados</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="stackWeighted">
+                                    <label class="form-check-label small" for="stackWeighted">Ponderar por calidad</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-accent btn-sm w-100" id="btnStackFrames">
+                                    <i class="bi bi-play-fill me-1"></i> Apilar Frames
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stack spinner -->
+                <div id="stackSpinner" class="cal-spinner mb-3" style="display:none;">
+                    <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                    <span>Apilando frames... Esto puede tardar.</span>
+                </div>
+
+                <!-- Stack results -->
+                <div id="stackResultsCard" class="editor-card mb-3" style="display:none;">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-check2-all me-2"></i>Resultado del apilado</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-2">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="stackResFrames">0</div>
+                                    <div class="align-stat-label">Frames usados</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="stackResMethod">—</div>
+                                    <div class="align-stat-label">Método</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="stackResMean">—</div>
+                                    <div class="align-stat-label">Media</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="stackResSNR">—</div>
+                                    <div class="align-stat-label">SNR ≈</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value" id="stackResSize">—</div>
+                                    <div class="align-stat-label">Dimensiones</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="stack-thumb-box" id="stackThumbBox" style="display:none;">
+                                    <img id="stackThumbImg" src="" alt="Stacked preview" class="stack-thumb">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value small" id="stackResMedian">—</div>
+                                    <div class="align-stat-label">Mediana</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value small" id="stackResStd">—</div>
+                                    <div class="align-stat-label">Desv. estándar</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value small" id="stackResMin">—</div>
+                                    <div class="align-stat-label">Mínimo</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value small" id="stackResMax">—</div>
+                                    <div class="align-stat-label">Máximo</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Previous stacks table -->
+                <div id="stackHistoryCard" class="editor-card" style="display:none;">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#stackHistoryBody">
+                        <h5><i class="bi bi-clock-history me-2"></i>Historial de apilados <span class="badge bg-secondary ms-2" id="stackHistoryBadge">0</span></h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="stackHistoryBody">
+                        <div class="editor-card-body p-0">
+                            <div class="image-table-wrapper">
+                                <table class="image-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-thumb"></th>
+                                            <th>Archivo</th>
+                                            <th>Método</th>
+                                            <th>Frames</th>
+                                            <th>SNR</th>
+                                            <th>Dimensiones</th>
+                                            <th>Fecha</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="stackHistoryTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Procesado ─────────────────────────────── -->
+            <div class="editor-tab-pane" id="tab-processing">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-sliders"></i></div>
+                    <h2>Procesado</h2>
+                    <p>Recorte, rotación y estiramientos del histograma para revelar detalles ocultos.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Qué es el stretching?</summary>
+                        <div class="tab-help-content">
+                            <p>Las imágenes astronómicas tienen un rango dinámico enorme: los objetos de cielo profundo son muy tenues
+                               comparados con las estrellas brillantes. El <em>stretching</em> (estiramiento) redistribuye los valores
+                               de píxel para hacer visibles los detalles débiles.</p>
+                            <p><strong>Métodos disponibles:</strong></p>
+                            <ul>
+                                <li><strong>Asinh</strong> — El más popular en astrofotografía. Realza detalles tenues sin saturar las estrellas.</li>
+                                <li><strong>Midtone (MTF)</strong> — Transferencia de medios tonos, similar al STF de PixInsight.</li>
+                                <li><strong>Logarítmico</strong> — Comprime el rango dinámico con escala logarítmica.</li>
+                                <li><strong>Raíz cuadrada</strong> — Stretch suave, menor agresividad que log.</li>
+                                <li><strong>Ecualización de histograma</strong> — Distribuye uniformemente las intensidades.</li>
+                                <li><strong>Lineal</strong> — Simple ajuste de punto negro / punto blanco.</li>
+                                <li><strong>Curvas</strong> — Puntos de control personalizados para total libertad.</li>
+                            </ul>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Source selector -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-image me-2"></i>Seleccionar imagen de origen</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-8">
+                                <label class="form-label">Imagen</label>
+                                <select class="form-select form-select-sm" id="procSourceSelect">
+                                    <option value="" disabled selected>— Selecciona una imagen —</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-outline-accent btn-sm w-100" id="btnProcLoadHisto">
+                                    <i class="bi bi-bar-chart me-1"></i> Cargar histograma
+                                </button>
+                            </div>
+                        </div>
+                        <div id="procImageInfo" class="mt-3 small text-secondary" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <!-- Histogram display -->
+                <div id="procHistoCard" class="editor-card mb-3" style="display:none;">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-bar-chart me-2"></i>Histograma</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <canvas id="procHistoCanvas" width="700" height="200" style="width:100%;max-height:200px;"></canvas>
+                        <div class="row g-2 mt-2">
+                            <div class="col text-center"><small class="text-secondary">Min: <span id="histoMin">—</span></small></div>
+                            <div class="col text-center"><small class="text-secondary">Max: <span id="histoMax">—</span></small></div>
+                            <div class="col text-center"><small class="text-secondary">Media: <span id="histoMean">—</span></small></div>
+                            <div class="col text-center"><small class="text-secondary">Mediana: <span id="histoMedian">—</span></small></div>
+                            <div class="col text-center"><small class="text-secondary">σ: <span id="histoStd">—</span></small></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Crop / Rotate / Flip -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#procGeomBody">
+                        <h5><i class="bi bi-crop me-2"></i>Recorte y rotación</h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="procGeomBody">
+                        <div class="editor-card-body">
+                            <h6 class="text-secondary mb-2">Recorte automático</h6>
+                            <p class="small text-secondary mb-2">Elimina bordes negros producidos por el alineamiento.</p>
+                            <div class="row g-3 align-items-end mb-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">Umbral (%)</label>
+                                    <input type="number" class="form-control form-control-sm" id="procAutoCropThresh" value="1.0" min="0" max="50" step="0.5">
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-outline-accent btn-sm w-100" id="btnAutoCrop">
+                                        <i class="bi bi-scissors me-1"></i> Auto-recorte
+                                    </button>
+                                </div>
+                            </div>
+                            <hr class="border-secondary">
+
+                            <h6 class="text-secondary mb-2">Recorte manual</h6>
+                            <div class="row g-3 align-items-end mb-3">
+                                <div class="col-md-2">
+                                    <label class="form-label">X</label>
+                                    <input type="number" class="form-control form-control-sm" id="procCropX" value="0" min="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Y</label>
+                                    <input type="number" class="form-control form-control-sm" id="procCropY" value="0" min="0">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Ancho</label>
+                                    <input type="number" class="form-control form-control-sm" id="procCropW" value="0" min="10">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Alto</label>
+                                    <input type="number" class="form-control form-control-sm" id="procCropH" value="0" min="10">
+                                </div>
+                                <div class="col-md-4">
+                                    <button class="btn btn-outline-accent btn-sm w-100" id="btnManualCrop">
+                                        <i class="bi bi-crop me-1"></i> Recortar
+                                    </button>
+                                </div>
+                            </div>
+                            <hr class="border-secondary">
+
+                            <h6 class="text-secondary mb-2">Rotación y volteo</h6>
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-3">
+                                    <label class="form-label">Ángulo (°)</label>
+                                    <input type="number" class="form-control form-control-sm" id="procRotateAngle" value="0" min="-360" max="360" step="0.5">
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-outline-accent btn-sm w-100" id="btnRotate">
+                                        <i class="bi bi-arrow-clockwise me-1"></i> Rotar
+                                    </button>
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-outline-secondary btn-sm w-100" id="btnFlipH">
+                                        <i class="bi bi-symmetry-vertical me-1"></i> Voltear H
+                                    </button>
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-outline-secondary btn-sm w-100" id="btnFlipV">
+                                        <i class="bi bi-symmetry-horizontal me-1"></i> Voltear V
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stretching -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#procStretchBody">
+                        <h5><i class="bi bi-brightness-high me-2"></i>Estiramiento (Stretching)</h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse show" id="procStretchBody">
+                        <div class="editor-card-body">
+                            <div class="row g-3 align-items-end mb-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">Método</label>
+                                    <select class="form-select form-select-sm" id="stretchMethod">
+                                        <option value="asinh" selected>Asinh</option>
+                                        <option value="midtone">Midtone (MTF)</option>
+                                        <option value="log">Logarítmico</option>
+                                        <option value="sqrt">Raíz cuadrada</option>
+                                        <option value="histogram">Ecualización histograma</option>
+                                        <option value="linear">Lineal</option>
+                                        <option value="curves">Curvas</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Punto negro (%)</label>
+                                    <input type="number" class="form-control form-control-sm" id="stretchBP" value="0.2" min="0" max="50" step="0.1">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Punto blanco (%)</label>
+                                    <input type="number" class="form-control form-control-sm" id="stretchWP" value="99.9" min="50" max="100" step="0.1">
+                                </div>
+                            </div>
+
+                            <!-- Dynamic params -->
+                            <div id="stretchDynParams" class="row g-3 align-items-end mb-3">
+                                <div class="col-md-3" id="stretchBetaGroup">
+                                    <label class="form-label">Beta (intensidad)</label>
+                                    <input type="range" class="form-range" id="stretchBeta" min="1" max="500" value="10" step="1">
+                                    <div class="text-center small text-secondary"><span id="stretchBetaVal">10</span></div>
+                                </div>
+                                <div class="col-md-3" id="stretchMidtoneGroup" style="display:none;">
+                                    <label class="form-label">Midtone balance</label>
+                                    <input type="range" class="form-range" id="stretchMidtone" min="0.01" max="0.99" value="0.25" step="0.01">
+                                    <div class="text-center small text-secondary"><span id="stretchMidtoneVal">0.25</span></div>
+                                </div>
+                                <div class="col-md-3" id="stretchScaleGroup" style="display:none;">
+                                    <label class="form-label">Escala log</label>
+                                    <input type="range" class="form-range" id="stretchScale" min="10" max="100000" value="1000" step="10">
+                                    <div class="text-center small text-secondary"><span id="stretchScaleVal">1000</span></div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <button class="btn btn-outline-info btn-sm w-100" id="btnStretchPreview">
+                                        <i class="bi bi-eye me-1"></i> Previsualizar
+                                    </button>
+                                </div>
+                                <div class="col-md-4">
+                                    <button class="btn btn-accent btn-sm w-100" id="btnStretchApply">
+                                        <i class="bi bi-check-lg me-1"></i> Aplicar stretch
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Preview -->
+                            <div id="stretchPreviewBox" class="stretch-preview-box mt-3" style="display:none;">
+                                <img id="stretchPreviewImg" src="" alt="Preview" class="stretch-preview-img">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Processing spinner -->
+                <div id="procSpinner" class="cal-spinner mb-3" style="display:none;">
+                    <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                    <span id="procSpinnerText">Procesando...</span>
+                </div>
+
+                <!-- Processing results history -->
+                <div id="procHistoryCard" class="editor-card" style="display:none;">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#procHistoryBody">
+                        <h5><i class="bi bi-clock-history me-2"></i>Resultados del procesado <span class="badge bg-secondary ms-2" id="procHistoryBadge">0</span></h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse show" id="procHistoryBody">
+                        <div class="editor-card-body p-0">
+                            <div class="image-table-wrapper">
+                                <table class="image-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-thumb"></th>
+                                            <th>Archivo</th>
+                                            <th>Operación</th>
+                                            <th>Dimensiones</th>
+                                            <th>Media</th>
+                                            <th>Fecha</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="procHistoryTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Composición de color ──────────────── -->
+            <div class="editor-tab-pane" id="tab-color">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-palette"></i></div>
+                    <h2>Composición de color</h2>
+                    <p>Asigna imágenes a los canales R, G, B para crear una imagen en color.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Cómo funciona la composición de color?</summary>
+                        <div class="tab-help-content">
+                            <p>En astrofotografía con cámaras monocromo, cada toma se hace con un filtro diferente.
+                               La composición de color asigna cada imagen filtrada a un canal de color (Rojo, Verde, Azul).</p>
+                            <p><strong>Técnicas habituales:</strong></p>
+                            <ul>
+                                <li><strong>RGB</strong> — Filtros broadband rojo, verde y azul → colores naturales.</li>
+                                <li><strong>LRGB</strong> — Como RGB pero con un canal de luminancia extra para ganar detalle.</li>
+                                <li><strong>Hubble (SHO)</strong> — SII→R, Hα→G, OIII→B. La paleta icónica del Hubble.</li>
+                                <li><strong>HOO</strong> — Hα→R, OIII→G+B. Bicolor popular con 2 filtros narrowband.</li>
+                                <li><strong>HαRGB</strong> — RGB estándar con Hα mezclado en el rojo para realzar nebulosas.</li>
+                            </ul>
+                            <div class="alert alert-info mt-2 mb-0 small">
+                                <i class="bi bi-lightbulb me-1"></i>
+                                <strong>Auto-balance</strong> iguala el fondo de los tres canales para evitar dominancias de color.
+                                <strong>Saturación</strong> controla la viveza de los colores (1.0 = sin cambio).
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Channel assignment -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-sliders2 me-2"></i>Asignación de canales</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label"><span class="color-dot dot-red"></span> Canal Rojo (R)</label>
+                                <select class="form-select form-select-sm" id="colorChR"></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label"><span class="color-dot dot-green"></span> Canal Verde (G)</label>
+                                <select class="form-select form-select-sm" id="colorChG"></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label"><span class="color-dot dot-blue"></span> Canal Azul (B)</label>
+                                <select class="form-select form-select-sm" id="colorChB"></select>
+                            </div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label">Luminancia (opcional)</label>
+                                <select class="form-select form-select-sm" id="colorChL"></select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Peso L</label>
+                                <input type="range" class="form-range" id="colorLumWeight" min="0" max="1" value="0.7" step="0.05">
+                                <div class="text-center small text-secondary"><span id="colorLumWeightVal">0.70</span></div>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Saturación</label>
+                                <input type="range" class="form-range" id="colorSaturation" min="0" max="3" value="1.0" step="0.05">
+                                <div class="text-center small text-secondary"><span id="colorSatVal">1.00</span></div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="form-check mt-4">
+                                    <input class="form-check-input" type="checkbox" id="colorAutoBalance" checked>
+                                    <label class="form-check-label small" for="colorAutoBalance">Auto-balance</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Stretch previo</label>
+                                <select class="form-select form-select-sm" id="colorStretch">
+                                    <option value="">Ninguno</option>
+                                    <option value="asinh">Asinh</option>
+                                    <option value="midtone">Midtone (MTF)</option>
+                                    <option value="log">Logarítmico</option>
+                                    <option value="sqrt">Raíz cuadrada</option>
+                                    <option value="histogram">Ecualización</option>
+                                    <option value="linear">Lineal</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <button class="btn btn-accent btn-sm w-100" id="btnComposeColor">
+                                    <i class="bi bi-palette me-1"></i> Componer color
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Color spinner -->
+                <div id="colorSpinner" class="cal-spinner mb-3" style="display:none;">
+                    <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                    <span>Componiendo imagen en color...</span>
+                </div>
+
+                <!-- Color result -->
+                <div id="colorResultCard" class="editor-card mb-3" style="display:none;">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-image me-2"></i>Resultado</h5>
+                    </div>
+                    <div class="editor-card-body text-center">
+                        <img id="colorResultThumb" src="" alt="Color composite" class="color-result-img mb-3">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value small" id="colorResSize">—</div>
+                                    <div class="align-stat-label">Dimensiones</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value small text-danger" id="colorResR">—</div>
+                                    <div class="align-stat-label">R media</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value small text-success" id="colorResG">—</div>
+                                    <div class="align-stat-label">G media</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="align-stat-box">
+                                    <div class="align-stat-value small text-primary" id="colorResB">—</div>
+                                    <div class="align-stat-label">B media</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-center justify-content-center">
+                                <button class="btn btn-outline-info btn-sm" id="btnColorPreviewFull">
+                                    <i class="bi bi-zoom-in me-1"></i> Ver grande
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Color composites history -->
+                <div id="colorHistoryCard" class="editor-card" style="display:none;">
+                    <div class="editor-card-header collapsible" data-bs-toggle="collapse" data-bs-target="#colorHistoryBody">
+                        <h5><i class="bi bi-clock-history me-2"></i>Historial de composiciones <span class="badge bg-secondary ms-2" id="colorHistoryBadge">0</span></h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="colorHistoryBody">
+                        <div class="editor-card-body p-0">
+                            <div class="image-table-wrapper">
+                                <table class="image-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="col-thumb"></th>
+                                            <th>Archivo</th>
+                                            <th>Canales</th>
+                                            <th>Dimensiones</th>
+                                            <th>Saturación</th>
+                                            <th>Fecha</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="colorHistoryTable"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Edición en vivo (canvas) ──────────────── -->
+            <div class="editor-tab-pane" id="tab-liveedit">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-brush"></i></div>
+                    <h2>Edición en vivo</h2>
+                    <p>Editor visual en tiempo real: todos los ajustes se procesan en tu navegador.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Cómo funciona esta herramienta?</summary>
+                        <div class="tab-help-content">
+                            <p>Esta pestaña aplica todos los ajustes <b>en el navegador</b> usando Canvas, sin necesidad de enviar
+                               nada al servidor. Los cambios son <em>en tiempo real</em> y <em>no destructivos</em>: puedes
+                               volver a los valores originales en cualquier momento con el botón de reinicio.</p>
+                            <p><strong>Flujo recomendado:</strong> Selecciona una imagen de origen (un apilado, un light calibrado
+                               o una composición de color), ajusta stretch, brillo, contraste, enfoque… y cuando estés satisfecho,
+                               exporta el resultado como PNG o JPG directamente desde tu navegador.</p>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Source selector -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-image me-2"></i>Imagen de origen</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-7">
+                                <label class="form-label">Seleccionar imagen</label>
+                                <select class="form-select form-select-sm" id="liveEditSource">
+                                    <option value="" disabled selected>— Selecciona una imagen —</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Stretch</label>
+                                <select class="form-select form-select-sm" id="liveEditStretch">
+                                    <option value="none">Ninguno</option>
+                                    <option value="asinh" selected>Asinh</option>
+                                    <option value="midtone">Midtone (MTF)</option>
+                                    <option value="log">Logarítmico</option>
+                                    <option value="sqrt">Raíz cuadrada</option>
+                                    <option value="histeq">Ecualización</option>
+                                    <option value="linear">Lineal</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <button class="btn btn-accent btn-sm w-100" id="btnLiveEditLoad">
+                                    <i class="bi bi-box-arrow-in-down me-1"></i> Cargar
+                                </button>
+                            </div>
+                        </div>
+                        <div id="liveEditLoadSpinner" class="cal-spinner mt-2" style="display:none;">
+                            <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                            <span>Cargando imagen...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main editor layout: canvas + controls -->
+                <div class="live-editor-layout" id="liveEditorLayout" style="display:none;">
+                    <!-- Canvas area -->
+                    <div class="live-editor-canvas-wrap">
+                        <canvas id="liveEditCanvas"></canvas>
+                        <div class="live-editor-info" id="liveEditInfo"></div>
+                    </div>
+
+                    <!-- Controls panel -->
+                    <div class="live-editor-controls">
+                        <!-- Reset + export row -->
+                        <div class="d-flex gap-2 mb-3">
+                            <button class="btn btn-outline-secondary btn-sm flex-fill" id="btnLiveEditReset">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i> Reiniciar
+                            </button>
+                            <button class="btn btn-accent btn-sm flex-fill" id="btnLiveEditExport">
+                                <i class="bi bi-download me-1"></i> Exportar
+                            </button>
+                        </div>
+
+                        <!-- Stretch params -->
+                        <div class="le-section">
+                            <div class="le-section-title" data-bs-toggle="collapse" data-bs-target="#leStretchBody">
+                                <i class="bi bi-brightness-high me-1"></i> Stretch
+                                <i class="bi bi-chevron-down ms-auto"></i>
+                            </div>
+                            <div class="collapse show" id="leStretchBody">
+                                <div class="le-slider-group">
+                                    <label>Punto negro (%)</label>
+                                    <input type="range" class="form-range" id="leBP" min="0" max="30" value="0.2" step="0.1">
+                                    <span class="le-val" id="leBPVal">0.2</span>
+                                </div>
+                                <div class="le-slider-group">
+                                    <label>Punto blanco (%)</label>
+                                    <input type="range" class="form-range" id="leWP" min="70" max="100" value="99.9" step="0.1">
+                                    <span class="le-val" id="leWPVal">99.9</span>
+                                </div>
+                                <div class="le-slider-group" id="leBetaGroup">
+                                    <label>Beta (Asinh)</label>
+                                    <input type="range" class="form-range" id="leBeta" min="1" max="500" value="10" step="1">
+                                    <span class="le-val" id="leBetaVal">10</span>
+                                </div>
+                                <div class="le-slider-group" id="leMidGroup" style="display:none;">
+                                    <label>Midtone balance</label>
+                                    <input type="range" class="form-range" id="leMid" min="0.01" max="0.99" value="0.25" step="0.01">
+                                    <span class="le-val" id="leMidVal">0.25</span>
+                                </div>
+                                <div class="le-slider-group" id="leScaleGroup" style="display:none;">
+                                    <label>Escala log</label>
+                                    <input type="range" class="form-range" id="leScale" min="10" max="100000" value="1000" step="10">
+                                    <span class="le-val" id="leScaleVal">1000</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Basic adjustments -->
+                        <div class="le-section">
+                            <div class="le-section-title" data-bs-toggle="collapse" data-bs-target="#leAdjBody">
+                                <i class="bi bi-sliders2 me-1"></i> Ajustes básicos
+                                <i class="bi bi-chevron-down ms-auto"></i>
+                            </div>
+                            <div class="collapse show" id="leAdjBody">
+                                <div class="le-slider-group">
+                                    <label>Brillo</label>
+                                    <input type="range" class="form-range" id="leBrightness" min="-100" max="100" value="0" step="1">
+                                    <span class="le-val" id="leBrightnessVal">0</span>
+                                </div>
+                                <div class="le-slider-group">
+                                    <label>Contraste</label>
+                                    <input type="range" class="form-range" id="leContrast" min="-100" max="100" value="0" step="1">
+                                    <span class="le-val" id="leContrastVal">0</span>
+                                </div>
+                                <div class="le-slider-group">
+                                    <label>Exposición (stops)</label>
+                                    <input type="range" class="form-range" id="leExposure" min="-3" max="3" value="0" step="0.05">
+                                    <span class="le-val" id="leExposureVal">0.00</span>
+                                </div>
+                                <div class="le-slider-group">
+                                    <label>Gamma</label>
+                                    <input type="range" class="form-range" id="leGamma" min="0.1" max="5" value="1" step="0.05">
+                                    <span class="le-val" id="leGammaVal">1.00</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tonal adjustments -->
+                        <div class="le-section">
+                            <div class="le-section-title" data-bs-toggle="collapse" data-bs-target="#leTonalBody">
+                                <i class="bi bi-circle-half me-1"></i> Tonos
+                                <i class="bi bi-chevron-down ms-auto"></i>
+                            </div>
+                            <div class="collapse" id="leTonalBody">
+                                <div class="le-slider-group">
+                                    <label>Saturación</label>
+                                    <input type="range" class="form-range" id="leSaturation" min="-100" max="100" value="0" step="1">
+                                    <span class="le-val" id="leSaturationVal">0</span>
+                                </div>
+                                <div class="le-slider-group">
+                                    <label>Sombras</label>
+                                    <input type="range" class="form-range" id="leShadows" min="-100" max="100" value="0" step="1">
+                                    <span class="le-val" id="leShadowsVal">0</span>
+                                </div>
+                                <div class="le-slider-group">
+                                    <label>Luces</label>
+                                    <input type="range" class="form-range" id="leHighlights" min="-100" max="100" value="0" step="1">
+                                    <span class="le-val" id="leHighlightsVal">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Filters -->
+                        <div class="le-section">
+                            <div class="le-section-title" data-bs-toggle="collapse" data-bs-target="#leFiltersBody">
+                                <i class="bi bi-funnel me-1"></i> Filtros
+                                <i class="bi bi-chevron-down ms-auto"></i>
+                            </div>
+                            <div class="collapse" id="leFiltersBody">
+                                <div class="le-slider-group">
+                                    <label>Enfoque (Sharpen)</label>
+                                    <input type="range" class="form-range" id="leSharpen" min="0" max="100" value="0" step="1">
+                                    <span class="le-val" id="leSharpenVal">0</span>
+                                </div>
+                                <div class="le-slider-group">
+                                    <label>Reducción de ruido</label>
+                                    <input type="range" class="form-range" id="leDenoise" min="0" max="100" value="0" step="1">
+                                    <span class="le-val" id="leDenoiseVal">0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Transform -->
+                        <div class="le-section">
+                            <div class="le-section-title" data-bs-toggle="collapse" data-bs-target="#leTransBody">
+                                <i class="bi bi-crop me-1"></i> Transformar
+                                <i class="bi bi-chevron-down ms-auto"></i>
+                            </div>
+                            <div class="collapse" id="leTransBody">
+                                <div class="le-slider-group">
+                                    <label>Rotación (°)</label>
+                                    <input type="range" class="form-range" id="leRotation" min="-180" max="180" value="0" step="0.5">
+                                    <span class="le-val" id="leRotationVal">0</span>
+                                </div>
+                                <div class="d-flex gap-2 mb-2">
+                                    <button class="btn btn-outline-secondary btn-sm flex-fill" id="btnLeRot90CW">
+                                        <i class="bi bi-arrow-clockwise"></i> 90°
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm flex-fill" id="btnLeRot90CCW">
+                                        <i class="bi bi-arrow-counterclockwise"></i> -90°
+                                    </button>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-outline-secondary btn-sm flex-fill" id="btnLeFlipH">
+                                        <i class="bi bi-symmetry-vertical me-1"></i> Voltear H
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm flex-fill" id="btnLeFlipV">
+                                        <i class="bi bi-symmetry-horizontal me-1"></i> Voltear V
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Histogram -->
+                        <div class="le-section">
+                            <div class="le-section-title" data-bs-toggle="collapse" data-bs-target="#leHistoBody">
+                                <i class="bi bi-bar-chart me-1"></i> Histograma
+                                <i class="bi bi-chevron-down ms-auto"></i>
+                            </div>
+                            <div class="collapse show" id="leHistoBody">
+                                <canvas id="liveEditHistoCanvas" width="280" height="100" class="le-histo-canvas"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Previsualización ──────────────────────── -->
+            <div class="editor-tab-pane" id="tab-preview">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-eye"></i></div>
+                    <h2>Previsualización</h2>
+                    <p>Visualiza cualquier imagen del proyecto con auto-stretch ajustable.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Cómo usar la previsualización?</summary>
+                        <div class="tab-help-content">
+                            <p>Selecciona una imagen del proyecto y elige un método de stretch para verla.
+                               Nada de lo que hagas aquí modifica los archivos del proyecto.</p>
+                            <p>Para composiciones de color, la imagen se muestra directamente en color.</p>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Preview source -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-image me-2"></i>Seleccionar imagen</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-5">
+                                <label class="form-label">Imagen</label>
+                                <select class="form-select form-select-sm" id="previewSourceSelect">
+                                    <option value="" disabled selected>— Selecciona una imagen —</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Stretch</label>
+                                <select class="form-select form-select-sm" id="previewStretch">
+                                    <option value="asinh" selected>Asinh</option>
+                                    <option value="midtone">Midtone</option>
+                                    <option value="log">Logarítmico</option>
+                                    <option value="sqrt">Raíz cuadrada</option>
+                                    <option value="histogram">Ecualización</option>
+                                    <option value="linear">Lineal</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Tamaño máx</label>
+                                <select class="form-select form-select-sm" id="previewMaxSize">
+                                    <option value="600">600px</option>
+                                    <option value="1000" selected>1000px</option>
+                                    <option value="1500">1500px</option>
+                                    <option value="2000">2000px</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-accent btn-sm w-100" id="btnPreviewGenerate">
+                                    <i class="bi bi-eye me-1"></i> Generar vista previa
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Preview spinner -->
+                <div id="previewSpinner" class="cal-spinner mb-3" style="display:none;">
+                    <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                    <span>Generando vista previa...</span>
+                </div>
+
+                <!-- Preview display -->
+                <div id="previewDisplayCard" class="editor-card" style="display:none;">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-eye me-2"></i>Vista previa</h5>
+                    </div>
+                    <div class="editor-card-body text-center p-2">
+                        <div class="preview-container">
+                            <img id="previewImage" src="" alt="Preview" class="preview-main-img">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── TAB: Exportar ──────────────────────────────── -->
+            <div class="editor-tab-pane" id="tab-export">
+                <div class="tab-intro">
+                    <div class="tab-intro-icon"><i class="bi bi-download"></i></div>
+                    <h2>Exportar</h2>
+                    <p>Descarga tu imagen procesada en el formato que prefieras.</p>
+                    <details class="tab-help-details">
+                        <summary><i class="bi bi-question-circle me-1"></i> ¿Qué formato elegir?</summary>
+                        <div class="tab-help-content">
+                            <p><strong>Formatos disponibles:</strong></p>
+                            <ul>
+                                <li><strong>FITS</strong> — Formato científico estándar. Preserva toda la precisión. Ideal para seguir procesando en otro programa.</li>
+                                <li><strong>TIFF</strong> — 8/16/32 bits. Compatible con Photoshop, GIMP, PixInsight.</li>
+                                <li><strong>PNG</strong> — 8 o 16 bits, compresión sin pérdida. Bueno para compartir en alta calidad.</li>
+                                <li><strong>JPG</strong> — 8 bits con compresión con pérdida. El más ligero, ideal para redes sociales.</li>
+                            </ul>
+                            <div class="alert alert-warning mt-2 mb-0 small">
+                                <i class="bi bi-exclamation-triangle me-1"></i>
+                                Si exportas a JPG/PNG 8 bits, considera aplicar un stretch primero, ya que la imagen lineal se verá casi negra.
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Export config -->
+                <div class="editor-card mb-3">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-gear me-2"></i>Configuración de exportación</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <div class="row g-3 align-items-end mb-3">
+                            <div class="col-md-5">
+                                <label class="form-label">Imagen a exportar</label>
+                                <select class="form-select form-select-sm" id="exportSourceSelect">
+                                    <option value="" disabled selected>— Selecciona una imagen —</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Formato</label>
+                                <select class="form-select form-select-sm" id="exportFormat">
+                                    <option value="fits">FITS</option>
+                                    <option value="tiff" selected>TIFF</option>
+                                    <option value="png">PNG</option>
+                                    <option value="jpg">JPG</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Profundidad</label>
+                                <select class="form-select form-select-sm" id="exportBitDepth">
+                                    <option value="8">8 bits</option>
+                                    <option value="16" selected>16 bits</option>
+                                    <option value="32">32 bits</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-3 align-items-end mb-3">
+                            <div class="col-md-3">
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="exportStretch">
+                                    <label class="form-check-label small" for="exportStretch">Aplicar stretch al exportar</label>
+                                </div>
+                            </div>
+                            <div class="col-md-3" id="exportStretchMethodGroup" style="display:none;">
+                                <label class="form-label">Método stretch</label>
+                                <select class="form-select form-select-sm" id="exportStretchMethod">
+                                    <option value="asinh" selected>Asinh</option>
+                                    <option value="midtone">Midtone</option>
+                                    <option value="log">Logarítmico</option>
+                                    <option value="sqrt">Raíz cuadrada</option>
+                                    <option value="histogram">Ecualización</option>
+                                    <option value="linear">Lineal</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <button class="btn btn-accent btn-sm w-100" id="btnExport">
+                                    <i class="bi bi-download me-1"></i> Exportar y descargar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export spinner -->
+                <div id="exportSpinner" class="cal-spinner mb-3" style="display:none;">
+                    <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                    <span>Exportando imagen...</span>
+                </div>
+
+                <!-- Export result -->
+                <div id="exportResultCard" class="editor-card" style="display:none;">
+                    <div class="editor-card-header">
+                        <h5><i class="bi bi-check2-circle me-2"></i>Exportación completada</h5>
+                    </div>
+                    <div class="editor-card-body">
+                        <p id="exportResultMsg" class="mb-0 text-success"></p>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /editor-content -->
+    </div><!-- /editor-main -->
+</div><!-- /editorWorkspace -->
+
+<!-- ═══ Image detail modal ═══════════════════════════════════════ -->
+<div class="modal fade" id="imageDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content oasis-modal">
+            <div class="modal-header">
+                <h5 class="modal-title" id="imageDetailTitle">Detalles de imagen</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-5 text-center">
+                        <img id="imageDetailThumb" class="img-fluid rounded" src="" alt="Thumbnail" style="max-height:300px; background: var(--bg-input);">
+                    </div>
+                    <div class="col-md-7">
+                        <table class="table table-sm">
+                            <tbody id="imageDetailMeta"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <hr>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label">Reclasificar como:</label>
+                        <select class="form-select form-select-sm" id="imageDetailReclassify">
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                            <option value="flat">Flat</option>
+                            <option value="bias">Bias</option>
+                            <option value="unclassified">Sin clasificar</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-sm btn-accent" id="btnReclassify">
+                            <i class="bi bi-arrow-repeat me-1"></i> Reclasificar
+                        </button>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <button class="btn btn-sm btn-outline-danger" id="btnDeleteImage">
+                            <i class="bi bi-trash me-1"></i> Eliminar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Delete project confirmation modal ════════════════════════ -->
+<div class="modal fade" id="deleteProjectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content oasis-modal">
+            <div class="modal-header">
+                <h5 class="modal-title">¿Eliminar proyecto?</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Se eliminarán todas las imágenes y datos del proyecto <strong id="deleteProjectName"></strong>. Esta acción no se puede deshacer.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button class="btn btn-sm btn-danger" id="btnConfirmDelete">
+                    <i class="bi bi-trash me-1"></i> Eliminar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Comparator modal ════════════════════════════════════════ -->
+<div class="modal fade" id="comparatorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content oasis-modal">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-layout-split me-2"></i>Comparador antes / después</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-5">
+                        <label class="form-label small">Imagen A (antes)</label>
+                        <select class="form-select form-select-sm" id="compSelectA"></select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small">Imagen B (después)</label>
+                        <select class="form-select form-select-sm" id="compSelectB"></select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button class="btn btn-accent btn-sm w-100" id="btnCompare">
+                            <i class="bi bi-eye me-1"></i> Comparar
+                        </button>
+                    </div>
+                </div>
+                <div id="compSpinner" class="cal-spinner mb-3" style="display:none;">
+                    <div class="spinner-border text-accent spinner-border-sm me-2"></div>
+                    <span>Generando previews...</span>
+                </div>
+                <div id="compDisplay" class="comparator-display" style="display:none;">
+                    <div class="comp-container" id="compContainer">
+                        <img id="compImgA" src="" alt="Before" class="comp-img comp-img-a">
+                        <div class="comp-slider-overlay" id="compOverlay">
+                            <img id="compImgB" src="" alt="After" class="comp-img comp-img-b">
+                        </div>
+                        <div class="comp-divider" id="compDivider">
+                            <div class="comp-handle"><i class="bi bi-grip-vertical"></i></div>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between mt-2">
+                        <span class="badge bg-secondary">A – Antes</span>
+                        <span class="badge bg-secondary">B – Después</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Tutorial bottom bar (collapsible) ═══════════════════════ -->
+<div id="tutorialOverlay" class="tutorial-bar" style="display:none;">
+    <div class="tutorial-bar-header" id="tutorialBarToggle">
+        <div class="tutorial-bar-left">
+            <i class="bi bi-mortarboard me-2"></i>
+            <span id="tutHeaderTitle">Modo Tutorial</span>
+            <span class="tutorial-step-indicator" id="tutStepIndicator">1/9</span>
+        </div>
+        <div class="tutorial-bar-right">
+            <button class="btn btn-sm btn-outline-secondary me-1" id="btnTutPrev"><i class="bi bi-chevron-left"></i></button>
+            <button class="btn btn-sm btn-accent me-2" id="btnTutNext">Siguiente <i class="bi bi-chevron-right"></i></button>
+            <button class="btn btn-sm btn-outline-secondary tutorial-collapse-btn" id="btnTutCollapse" title="Colapsar/Expandir">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+            <button class="btn-close btn-close-white ms-2" id="btnTutorialClose" title="Cerrar tutorial"></button>
+        </div>
+    </div>
+    <div class="tutorial-bar-body" id="tutBarBody">
+        <div class="tutorial-body" id="tutBody"></div>
+        <div class="tutorial-credit" id="tutCredit" style="display:none;"></div>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1090;">
+    <div id="editorToast" class="toast align-items-center border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body" id="editorToastBody"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/editor_imageproc.js"></script>
+<script src="/static/js/editor.js"></script>
+{% endblock %}
