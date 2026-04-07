@@ -427,22 +427,33 @@ def get_rgb_histogram(project_id: str, composite_id: str, n_bins: int = 256) -> 
         raise ValueError("Invalid composite data")
 
     r_ch, g_ch, b_ch = cube[0], cube[1], cube[2]
+
+    # Filter NaN / Inf values
+    r_ch = np.nan_to_num(r_ch, nan=0.0, posinf=1.0, neginf=0.0)
+    g_ch = np.nan_to_num(g_ch, nan=0.0, posinf=1.0, neginf=0.0)
+    b_ch = np.nan_to_num(b_ch, nan=0.0, posinf=1.0, neginf=0.0)
+
     lum = 0.2126 * r_ch + 0.7152 * g_ch + 0.0722 * b_ch
 
     result = {"width": int(cube.shape[2]), "height": int(cube.shape[1])}
     for name, ch_data in [("L", lum), ("R", r_ch), ("G", g_ch), ("B", b_ch)]:
-        cmin, cmax = float(np.min(ch_data)), float(np.max(ch_data))
+        flat = ch_data.ravel()
+        flat = flat[np.isfinite(flat)]
+        if len(flat) == 0:
+            result[name] = {"counts": [0] * n_bins, "data_min": 0, "data_max": 0, "data_mean": 0, "data_std": 0}
+            continue
+        cmin, cmax = float(np.min(flat)), float(np.max(flat))
         if cmax > cmin:
-            normed = (ch_data - cmin) / (cmax - cmin)
+            normed = (flat - cmin) / (cmax - cmin)
         else:
-            normed = np.zeros_like(ch_data)
-        counts, _ = np.histogram(normed.ravel(), bins=n_bins, range=(0, 1))
+            normed = np.zeros_like(flat)
+        counts, _ = np.histogram(normed, bins=n_bins, range=(0, 1))
         result[name] = {
             "counts": counts.tolist(),
             "data_min": cmin,
             "data_max": cmax,
-            "data_mean": float(np.mean(ch_data)),
-            "data_std": float(np.std(ch_data)),
+            "data_mean": float(np.mean(flat)),
+            "data_std": float(np.std(flat)),
         }
 
     return result

@@ -142,6 +142,7 @@ def compose_color(
     project_id: str,
     channels: dict,
     saturation: float = 1.0,
+    contrast: float = 1.0,
     luminance_id: str | None = None,
     luminance_type: str = "stacked",
     luminance_weight: float = 0.7,
@@ -269,6 +270,10 @@ def compose_color(
     if saturation != 1.0:
         rgb = _adjust_saturation(rgb, saturation)
 
+    # Contrast adjustment (stretch around mean)
+    if contrast != 1.0:
+        rgb = _adjust_contrast(rgb, contrast)
+
     # Luminance blending (LRGB technique)
     if luminance_id:
         lum_data, _lrec = _load_source(project_id, luminance_id, luminance_type)
@@ -385,6 +390,13 @@ def _adjust_saturation(rgb: np.ndarray, factor: float) -> np.ndarray:
     return np.clip(result, 0, 1)
 
 
+def _adjust_contrast(rgb: np.ndarray, factor: float) -> np.ndarray:
+    """Adjust contrast of an RGB image around its mean (values in [0,1])."""
+    mean = np.mean(rgb)
+    result = (rgb - mean) * factor + mean
+    return np.clip(result, 0, 1)
+
+
 def _blend_luminance(rgb: np.ndarray, lum: np.ndarray, weight: float) -> np.ndarray:
     """Blend a luminance channel into RGB (LRGB technique)."""
     # Current luminance from RGB
@@ -481,6 +493,77 @@ def get_color_preview(
 
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=92)
+    return buf.getvalue()
+
+
+def adjust_rgb_levels(
+    project_id: str,
+    composite_id: str,
+    levels: dict,
+    max_size: int = 1200,
+) -> bytes:
+    """
+    Apply per-channel level adjustments on an existing composite and return JPEG.
+
+    levels: {"R": {"zmin": 0.0, "zmax": 1.0}, "G": {...}, "B": {...}}
+    Each channel is remapped: out = clip((ch - zmin) / (zmax - zmin), 0, 1)
+    """
+    from PIL import Image
+    import io
+
+    project = load_project(project_id)
+    if project is None:
+        raise ValueError("Project not found")
+
+    composites = project.get("color_composites", [])
+    record = None
+    for c in composites:
+        if c["id"] == composite_id:
+            record = c
+            break
+    if record is None:
+        raise ValueError(f"Composite {composite_id} not found")
+
+    fpath = _projects_base() / project_id / "results" / record["stored_name"]
+    if not fpath.exists():
+        raise ValueError("Composite file not found")
+
+    from astropy.io import fits as pyfits
+    with pyfits.open(fpath) as hdul:
+        cube = hdul[0].data.astype(np.float64)
+
+    if cube.ndim != 3 or cube.shape[0] != 3:
+        raise ValueError("Invalid color composite data")
+
+    rgb = np.stack([cube[0], cube[1], cube[2]], axis=-1)
+    rgb = np.nan_to_num(rgb, nan=0.0, posinf=1.0, neginf=0.0)
+
+    # Apply per-channel level adjustment
+    ch_names = ["R", "G", "B"]
+    for i, ch_name in enumerate(ch_names):
+        if ch_name in levels:
+            zmin = float(levels[ch_name].get("zmin", 0.0))
+            zmax = float(levels[ch_name].get("zmax", 1.0))
+            if zmax > zmin:
+                rgb[:, :, i] = (rgb[:, :, i] - zmin) / (zmax - zmin)
+            else:
+                rgb[:, :, i] = 0.0
+
+    rgb = np.clip(rgb, 0, 1)
+
+    # Downsample
+    h, w = rgb.shape[:2]
+    if max(h, w) > max_size:
+        scale = max_size / max(h, w)
+        new_h, new_w = int(h * scale), int(w * scale)
+        from skimage.transform import resize
+        rgb = resize(rgb, (new_h, new_w, 3), anti_aliasing=True, preserve_range=True)
+
+    img_array = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
+    img = Image.fromarray(img_array, mode="RGB")
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
     return buf.getvalue()
 
 

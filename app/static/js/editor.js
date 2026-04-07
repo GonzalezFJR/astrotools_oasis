@@ -18,8 +18,14 @@
     let selectedFrameType = '';     // '' = auto-detect
     let globalMaxSize = 1000;
 
+    // Utility: debounce
+    function _debounce(fn, ms) {
+        let t;
+        return function(...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
+    }
+
     // HistogramPanel instances (set during init)
-    let hpProc = null, hpColor = null, hpPreview = null, hpLive = null;
+    let hpProc = null, hpColor = null, hpPreview = null;
     // Color RGB histogram panel (main area)
     let hpColorRGB = null;
     // Processing main-area dual histogram panel
@@ -240,7 +246,6 @@
         updateColorUI();
         updatePreviewUI();
         updateExportUI();
-        updateLiveEditUI();
         updateUndoRedoButtons();
     }
 
@@ -755,7 +760,7 @@
         initUndoRedo();
         initTutorial();
         initComparator();
-        initLiveEdit();
+        initSendToButtons();
         initSidebarResize();
         initGlobalMaxSize();
         initZoomContainers();
@@ -1360,6 +1365,10 @@
     function initProcessing() {
         // Source select
         document.getElementById('sideProcLoadHisto').addEventListener('click', loadHistogram);
+        document.getElementById('sideProcSource').addEventListener('change', () => {
+            loadHistogram();
+            runStretchPreview();
+        });
 
         // Geometry
         document.getElementById('btnAutoCrop').addEventListener('click', runAutoCrop);
@@ -1370,18 +1379,20 @@
 
         // Stretch
         document.getElementById('sideProcPreview').addEventListener('click', runStretchPreview);
-        document.getElementById('sideProcApply').addEventListener('click', runStretchApply);
+        document.getElementById('btnProcApply').addEventListener('click', runStretchApply);
 
         // HistogramPanel for Processing sidebar (mono)
         hpProc = new HistogramPanel(document.getElementById('procHistoPanel'), {
             mode: 'mono', height: 80,
             zmin: 0.002, zmax: 0.999,
-            onChange(ch, zmin, zmax) { /* sidebar slider readout updated by panel itself */ },
+            title: 'Histograma — Stretch',
+            onChange: _debounce(() => { runStretchPreview(); }, 400),
         });
 
         // HistogramPanel for Processing main area (dual: original + processed)
         hpProcMain = new HistogramPanel(document.getElementById('procMainHistoPanel'), {
             mode: 'dual', height: 100,
+            title: 'Histograma — Original vs Procesado',
             labels: { original: 'Original', processed: 'Procesado' },
         });
 
@@ -1493,6 +1504,16 @@
             html += '</optgroup>';
         }
 
+        // Color composites (saved)
+        const colors = (currentProject.color_composites || []).filter(c => c.saved);
+        if (colors.length) {
+            html += '<optgroup label="Color">';
+            colors.forEach(c => {
+                html += `<option value="color_composite:${c.id}">${c.display_name || c.filename}</option>`;
+            });
+            html += '</optgroup>';
+        }
+
         sel.innerHTML = html;
         // Restore selection if still valid
         if (prevVal && sel.querySelector(`option[value="${prevVal}"]`)) {
@@ -1513,16 +1534,10 @@
 
             currentHistogram = data;
 
-            // Feed to sidebar panel and main-area panel
-            if (hpProc) hpProc.setHistogram('L', data.counts);
-            if (hpProcMain) hpProcMain.setHistogram('L', data.counts);
-
-            document.getElementById('procHistoCard').style.display = '';
-            document.getElementById('histoMin').textContent = data.data_min.toFixed(1);
-            document.getElementById('histoMax').textContent = data.data_max.toFixed(1);
-            document.getElementById('histoMean').textContent = data.data_mean.toFixed(1);
-            document.getElementById('histoMedian').textContent = data.data_median.toFixed(1);
-            document.getElementById('histoStd').textContent = data.data_std.toFixed(1);
+            // Feed to sidebar panel and main-area panel with stats
+            const histoStats = { data_min: data.data_min, data_max: data.data_max, data_mean: data.data_mean, data_median: data.data_median, data_std: data.data_std };
+            if (hpProc) hpProc.setHistogram('L', data.counts, histoStats);
+            if (hpProcMain) hpProcMain.setHistogram('L', data.counts, histoStats);
 
             // Show image info
             const info = document.getElementById('procImageInfo');
@@ -1541,7 +1556,7 @@
                 body: JSON.stringify({ source_id: processedId, source_type: 'processed' }),
             });
             if (data.error) return;
-            if (hpProcMain) hpProcMain.setHistogram('L_proc', data.counts);
+            if (hpProcMain) hpProcMain.setHistogram('L_proc', data.counts, { data_min: data.data_min, data_max: data.data_max, data_mean: data.data_mean, data_median: data.data_median, data_std: data.data_std });
         } catch (err) { /* ignore */ }
     }
 
@@ -1565,10 +1580,15 @@
             updateProcHistory();
             updateProcessingSourceSelect();
             updateProcessingLog();
+            updatePreviewSourceSelect();
+            updateExportSourceSelect();
             showToast(`${spinnerText.replace('...', '')}: completado`);
 
-            // Load processed histogram for dual view
-            if (result.id) loadProcessedHistogram(result.id);
+            // Track for sendTo
+            if (result.id) {
+                _lastProcSourceVal = `processed:${result.id}`;
+                loadProcessedHistogram(result.id);
+            }
 
             return result;
         } catch (err) {
@@ -1621,8 +1641,10 @@
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
             const img = document.getElementById('stretchPreviewImg');
+            if (img._prevUrl) URL.revokeObjectURL(img._prevUrl);
             img.src = url;
-            document.getElementById('stretchPreviewBox').style.display = '';
+            img._prevUrl = url;
+            document.getElementById('procPreviewCard').style.display = '';
         } catch (err) {
             showToast('Error de previsualización', 'error');
         }
@@ -1695,24 +1717,30 @@
     // ═══════════════════════════════════════════════
 
     function initColor() {
-        document.getElementById('sideColorCompose').addEventListener('click', runComposeColor);
+        document.getElementById('btnColorApply').addEventListener('click', runComposeColor);
         document.getElementById('sideColorLumW').addEventListener('input', e => {
             document.getElementById('sideColorLumWVal').textContent = parseFloat(e.target.value).toFixed(2);
         });
         document.getElementById('sideColorSat').addEventListener('input', e => {
             document.getElementById('sideColorSatVal').textContent = parseFloat(e.target.value).toFixed(2);
         });
+        document.getElementById('sideColorContrast').addEventListener('input', e => {
+            document.getElementById('sideColorContrastVal').textContent = parseFloat(e.target.value).toFixed(2);
+        });
 
         // HistogramPanel for Color sidebar (mono for stretch zmin/zmax)
         hpColor = new HistogramPanel(document.getElementById('colorHistoPanel'), {
             mode: 'mono', height: 70,
             zmin: 0.002, zmax: 0.999,
+            title: 'Histograma — Color Stretch',
+            onChange: _debounce(() => { runComposeColor(); }, 600),
         });
 
-        // HistogramPanel for Color RGB main area (dual L + R/G/B)
+        // HistogramPanel for Color RGB (R/G/B channels only)
         hpColorRGB = new HistogramPanel(document.getElementById('colorRGBHistoPanel'), {
-            mode: 'dual+rgb', height: 70,
-            labels: { original: 'Luminancia (original)', processed: 'Luminancia (resultado)' },
+            mode: 'rgb', height: 70,
+            title: 'Histogramas RGB',
+            onChange: _debounce(() => { _applyRGBLevels(); }, 400),
         });
 
         // Color stretch method toggles
@@ -1823,16 +1851,16 @@
             stacks.forEach(s => { html += `<option value="stacked:${s.id}">${s.filename}</option>`; });
             html += '</optgroup>';
         }
-        const procs = currentProject.processed_results || [];
+        const procs = (currentProject.processed_results || []).filter(p => p.saved);
         if (procs.length) {
             html += '<optgroup label="Procesados">';
-            procs.forEach(p => { html += `<option value="processed:${p.id}">${p.filename}</option>`; });
+            procs.forEach(p => { html += `<option value="processed:${p.id}">${p.display_name || p.filename}</option>`; });
             html += '</optgroup>';
         }
-        const colors = currentProject.color_composites || [];
+        const colors = (currentProject.color_composites || []).filter(c => c.saved);
         if (colors.length) {
             html += '<optgroup label="Color">';
-            colors.forEach(c => { html += `<option value="color_composite:${c.id}">${c.filename}</option>`; });
+            colors.forEach(c => { html += `<option value="color_composite:${c.id}">${c.display_name || c.filename}</option>`; });
             html += '</optgroup>';
         }
         const aligned = currentProject.aligned_lights || [];
@@ -1913,6 +1941,7 @@
         const body = {
             channels,
             saturation: parseFloat(document.getElementById('sideColorSat').value) || 1.0,
+            contrast: parseFloat(document.getElementById('sideColorContrast').value) || 1.0,
             auto_balance: document.getElementById('sideColorAutoBalance').checked,
             luminance_id: lSrc ? lSrc.source_id : null,
             luminance_type: lSrc ? lSrc.source_type : 'stacked',
@@ -1935,10 +1964,13 @@
 
             if (result.error) { showToast(result.error, 'error'); return; }
 
+            _currentCompositeId = result.id;
+            _lastColorSourceVal = `color_composite:${result.id}`;
             currentProject = await api(`/projects/${currentProject.id}`);
             showColorResult(result);
             updateColorHistory();
             updateProcessingLog();
+            updateProcessingSourceSelect();
             updatePreviewSourceSelect();
             updateExportSourceSelect();
             showToast('Composición de color completada');
@@ -1957,6 +1989,8 @@
         const composites = currentProject.color_composites || [];
         const latest = composites[composites.length - 1];
         if (!latest) return;
+
+        _currentCompositeId = latest.id;
 
         try {
             const res = await fetch(`${API}/projects/${currentProject.id}/preview/color`, {
@@ -1982,6 +2016,10 @@
 
         // Load RGB histograms
         _loadColorRGBHistograms(latest.id);
+
+        // Set default save name
+        const nameInput = document.getElementById('colorSaveName');
+        if (nameInput && !nameInput.value) nameInput.value = latest.filename.replace('.fits', '');
     }
 
     async function _loadColorRGBHistograms(compositeId) {
@@ -1992,13 +2030,51 @@
             });
             if (data.error) return;
 
-            document.getElementById('colorRGBHistoCard').style.display = '';
             if (hpColorRGB) {
-                if (data.L) hpColorRGB.setHistogram('L', data.L.counts);
-                if (data.R) hpColorRGB.setHistogram('R', data.R.counts);
-                if (data.G) hpColorRGB.setHistogram('G', data.G.counts);
-                if (data.B) hpColorRGB.setHistogram('B', data.B.counts);
+                if (data.R) hpColorRGB.setHistogram('R', data.R.counts, data.R);
+                if (data.G) hpColorRGB.setHistogram('G', data.G.counts, data.G);
+                if (data.B) hpColorRGB.setHistogram('B', data.B.counts, data.B);
             }
+            // Feed luminance to the stretch histogram panel
+            if (hpColor && data.L) {
+                hpColor.setHistogram('L', data.L.counts, data.L);
+            }
+        } catch (err) { /* ignore */ }
+    }
+
+    let _currentCompositeId = null;
+
+    async function _applyRGBLevels() {
+        if (!currentProject || !_currentCompositeId) return;
+        if (!hpColorRGB) return;
+        const rVals = hpColorRGB.getValues('R');
+        const gVals = hpColorRGB.getValues('G');
+        const bVals = hpColorRGB.getValues('B');
+        // Skip if all defaults
+        if (rVals.zmin < 0.003 && rVals.zmax > 0.997 &&
+            gVals.zmin < 0.003 && gVals.zmax > 0.997 &&
+            bVals.zmin < 0.003 && bVals.zmax > 0.997) return;
+        try {
+            const res = await fetch(`${API}/projects/${currentProject.id}/color/adjust-levels`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    composite_id: _currentCompositeId,
+                    levels: {
+                        R: { zmin: rVals.zmin, zmax: rVals.zmax },
+                        G: { zmin: gVals.zmin, zmax: gVals.zmax },
+                        B: { zmin: bVals.zmin, zmax: bVals.zmax },
+                    },
+                    max_size: globalMaxSize,
+                }),
+            });
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const img = document.getElementById('colorResultImg');
+            if (img._prevUrl) URL.revokeObjectURL(img._prevUrl);
+            img.src = url;
+            img._prevUrl = url;
         } catch (err) { /* ignore */ }
     }
 
@@ -2060,6 +2136,155 @@
     }
 
     // ═══════════════════════════════════════════════
+    //  SEND-TO + GUARDAR (shared Preview card logic)
+    // ═══════════════════════════════════════════════
+
+    /**
+     * Send the given source image to another tab by selecting it in that tab's source selector.
+     * @param {string} sourceVal - source value in "type:id" format
+     * @param {string} targetTab - tab id to switch to, e.g. 'tab-processing'
+     */
+    function sendImageToTab(sourceVal, targetTab) {
+        if (!sourceVal) { showToast('No hay imagen para enviar', 'warning'); return; }
+        const selectorMap = {
+            'tab-processing': 'sideProcSource',
+            'tab-color': null, // color uses channel selects
+            'tab-export': 'sideExportSource',
+            'tab-preview': 'sidePreviewSource',
+        };
+        const selId = selectorMap[targetTab];
+        if (selId) {
+            const sel = document.getElementById(selId);
+            if (sel) {
+                // Ensure option exists
+                const exists = Array.from(sel.options).some(o => o.value === sourceVal);
+                if (!exists) {
+                    // Refresh selectors first
+                    if (targetTab === 'tab-processing') updateProcessingSourceSelect();
+                    else if (targetTab === 'tab-export') updateExportSourceSelect();
+                    else if (targetTab === 'tab-preview') updatePreviewSourceSelect();
+                }
+                sel.value = sourceVal;
+            }
+        }
+        switchTab(targetTab);
+        showToast(`Imagen enviada a ${targetTab.replace('tab-', '')}`);
+    }
+
+    // Track latest source values per-tab for sendTo
+    let _lastProcSourceVal = null;
+    let _lastColorSourceVal = null;
+
+    function initSendToButtons() {
+        // Color → Send to
+        const colorSendBtn = document.getElementById('colorSendToBtn');
+        if (colorSendBtn) {
+            colorSendBtn.addEventListener('click', () => {
+                if (!_lastColorSourceVal) { showToast('No hay imagen para enviar', 'warning'); return; }
+                const targetTab = document.getElementById('colorSendToSelect').value;
+                sendImageToTab(_lastColorSourceVal, targetTab);
+                // If sending to Export, trigger preview load
+                if (targetTab === 'tab-export') setTimeout(() => loadExportPreview(), 200);
+            });
+        }
+        // Processing → Send to
+        const procSendBtn = document.getElementById('procSendToBtn');
+        if (procSendBtn) {
+            procSendBtn.addEventListener('click', () => {
+                if (!_lastProcSourceVal) { showToast('No hay imagen para enviar', 'warning'); return; }
+                const targetTab = document.getElementById('procSendToSelect').value;
+                sendImageToTab(_lastProcSourceVal, targetTab);
+                if (targetTab === 'tab-export') setTimeout(() => loadExportPreview(), 200);
+            });
+        }
+        // Color → Save
+        const colorSaveBtn = document.getElementById('colorSaveBtn');
+        if (colorSaveBtn) {
+            colorSaveBtn.addEventListener('click', () => saveColorPersistent());
+        }
+        // Processing → Save
+        const procSaveBtn = document.getElementById('procSaveBtn');
+        if (procSaveBtn) {
+            procSaveBtn.addEventListener('click', () => saveProcPersistent());
+        }
+    }
+
+    async function saveColorPersistent() {
+        if (!currentProject || !_currentCompositeId) {
+            showToast('No hay composición para guardar', 'warning'); return;
+        }
+        const nameInput = document.getElementById('colorSaveName');
+        const customName = (nameInput.value || '').trim();
+        try {
+            const res = await api(`/projects/${currentProject.id}/color/${_currentCompositeId}/save`, {
+                method: 'POST',
+                body: JSON.stringify({ name: customName || null }),
+            });
+            if (res.error) { showToast(res.error, 'error'); return; }
+            currentProject = await api(`/projects/${currentProject.id}`);
+            updateProcessingSourceSelect();
+            updatePreviewSourceSelect();
+            updateExportSourceSelect();
+            showToast('Composición guardada de forma persistente');
+        } catch { showToast('Error al guardar', 'error'); }
+    }
+
+    async function saveProcPersistent() {
+        if (!currentProject) { showToast('No hay resultado para guardar', 'warning'); return; }
+        const procs = currentProject.processed_results || [];
+        if (!procs.length) { showToast('No hay resultado para guardar', 'warning'); return; }
+        const latest = procs[procs.length - 1];
+        const nameInput = document.getElementById('procSaveName');
+        const customName = (nameInput.value || '').trim();
+        try {
+            const res = await api(`/projects/${currentProject.id}/processing/${latest.id}/save`, {
+                method: 'POST',
+                body: JSON.stringify({ name: customName || null }),
+            });
+            if (res.error) { showToast(res.error, 'error'); return; }
+            currentProject = await api(`/projects/${currentProject.id}`);
+            updateProcessingSourceSelect();
+            updatePreviewSourceSelect();
+            updateExportSourceSelect();
+            showToast('Resultado guardado de forma persistente');
+        } catch { showToast('Error al guardar', 'error'); }
+    }
+
+    // ═══════════════════════════════════════════════
+    //  EXPORT PREVIEW
+    // ═══════════════════════════════════════════════
+
+    async function loadExportPreview() {
+        if (!currentProject) return;
+        const val = document.getElementById('sideExportSource').value;
+        const src = _parseSourceVal(val);
+        if (!src) {
+            document.getElementById('exportPreviewCard').style.display = 'none';
+            return;
+        }
+        try {
+            const isColor = src.source_type === 'color_composite';
+            const endpoint = isColor ? 'preview/color' : 'preview/mono';
+            const body = isColor
+                ? { composite_id: src.source_id, max_size: 600 }
+                : { source_id: src.source_id, source_type: src.source_type, max_size: 600 };
+            const res = await fetch(`${API}/projects/${currentProject.id}/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const img = document.getElementById('exportPreviewImg');
+            if (img._prevUrl) URL.revokeObjectURL(img._prevUrl);
+            img.src = url;
+            img._prevUrl = url;
+            document.getElementById('exportPreviewCard').style.display = '';
+        } catch { /* ignore */ }
+    }
+
+    // ═══════════════════════════════════════════════
     //  PREVIEW
     // ═══════════════════════════════════════════════
 
@@ -2072,6 +2297,7 @@
         hpPreview = new HistogramPanel(document.getElementById('previewHistoPanel'), {
             mode: 'mono', height: 80,
             zmin: 0.002, zmax: 0.999,
+            title: 'Histograma — Preview',
             onChange(ch, zmin, zmax) {
                 _triggerLivePreview();
             },
@@ -2199,6 +2425,7 @@
         document.getElementById('sideExportStretch').addEventListener('change', e => {
             document.getElementById('sideExportStretchGrp').style.display = e.target.checked ? '' : 'none';
         });
+        document.getElementById('sideExportSource').addEventListener('change', () => loadExportPreview());
     }
 
     function updateExportSourceSelect() {
@@ -2292,6 +2519,7 @@
             if (!currentProject) return;
             if (e.ctrlKey && !e.shiftKey && e.key === 'z') { e.preventDefault(); doUndo(); }
             if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'z') || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); doRedo(); }
+            if (e.shiftKey && !e.ctrlKey && !e.altKey && e.key === 'Enter') { e.preventDefault(); runComposeColor(); }
         });
     }
 
@@ -2354,7 +2582,6 @@
         { tab: 'tab-stacking', title: 'Apilado', body: 'Combina los frames alineados en una sola imagen por canal, aumentando la relación señal-ruido. Se ofrecen varios métodos: media, mediana, sigma-clip, winsorized…' },
         { tab: 'tab-processing', title: 'Procesado', body: 'Ajusta el histograma con diferentes funciones de <i>stretching</i>, recorta o rota la imagen. Aquí es donde se revela el detalle oculto en los datos.' },
         { tab: 'tab-color', title: 'Composición de color', body: 'Asigna canales a colores y crea tu imagen final en color. Puedes usar paletas como SHO (Hubble), HOO, OSC o personalizar los canales libremente.' },
-        { tab: 'tab-liveedit', title: 'Edición en vivo', body: 'El editor visual procesa todo en tu <b>navegador</b>: brillo, contraste, exposición, gamma, saturación, sombras/luces, enfoque, reducción de ruido, rotación… Los cambios son instantáneos y no destructivos. Cuando estés satisfecho, exporta directamente a PNG.' },
         { tab: 'tab-preview', title: 'Previsualización', body: 'Vista rápida no destructiva de cualquier light, útil para comprobar el encuadre y la calidad antes de procesar.' },
         { tab: 'tab-export', title: 'Exportar', body: 'Descarga tu resultado en FITS (datos científicos), TIFF (16 bit), PNG o JPG. Puedes elegir el canal o la imagen compuesta de color.' },
     ];
@@ -2649,6 +2876,7 @@
         hpLive = new HistogramPanel(document.getElementById('liveHistoPanel'), {
             mode: 'mono', height: 80,
             zmin: 0.002, zmax: 0.999,
+            title: 'Histograma — Edición en vivo',
             onChange(ch, zmin, zmax) {
                 if (liveProc && liveProc.loaded) {
                     liveProc.setEdit('stretchBP', zmin * 100);

@@ -262,6 +262,19 @@
     color: var(--text-secondary);
     margin-bottom: 0.6rem;
 }
+.sidebar-title.collapsible {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+.sidebar-title.collapsible .bi-chevron-down {
+    transition: transform 0.2s;
+    font-size: 0.65rem;
+}
+.sidebar-title.collapsible[aria-expanded="false"] .bi-chevron-down {
+    transform: rotate(-90deg);
+}
 
 .sidebar-divider {
     border-color: var(--border);
@@ -1096,6 +1109,37 @@
     border-radius: 4px;
 }
 
+/* ── Preview card (reusable image display with toolbar) ─── */
+.preview-card-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+.preview-card-toolbar .preview-sendto {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+.preview-card-toolbar .preview-sendto select {
+    width: auto;
+    min-width: 120px;
+}
+.preview-card-save-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-top: 1px solid var(--border);
+}
+.preview-card-save-row input {
+    flex: 1;
+    min-width: 120px;
+}
+
 /* ── Full-screen preview modal ──────────────── */
 .preview-fullscreen-overlay {
     position: fixed;
@@ -1522,55 +1566,165 @@
 .hpanel {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 5px 4px;
+    background: rgba(10, 10, 18, 0.35);
 }
 .hpanel-toolbar {
     display: flex;
-    gap: 4px;
+    gap: 3px;
     justify-content: flex-end;
     margin-bottom: 2px;
+    flex-wrap: wrap;
 }
-.hpanel-toggle {
-    font-size: 0.6rem;
-    padding: 1px 7px;
+.hpanel-tbtn {
+    font-size: 0;
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
     border-radius: 4px;
     border: 1px solid var(--border);
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
+    padding: 0;
 }
-.hpanel-toggle.active {
+.hpanel-tbtn i { font-size: 0.7rem; }
+.hpanel-tbtn.active {
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
 }
-.hpanel-toggle:hover { opacity: 0.85; }
-.hpanel-channel {
-    margin-bottom: 2px;
-}
-.hpanel-label {
-    font-size: 0.65rem;
-    color: var(--text-muted);
-    margin-bottom: 1px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-.hpanel-canvas {
-    width: 100%;
-    height: 80px;
-    border-radius: 4px;
-    cursor: ew-resize;
-    display: block;
-    border: 1px solid var(--border);
-}
-.hpanel-values {
+.hpanel-tbtn:hover { opacity: 0.85; }
+
+/* Per-channel gain overlay (sits below the chart, over the dataZoom area) */
+.hpanel-gain-overlay {
     display: flex;
-    justify-content: space-between;
-    padding: 0 2px;
+    align-items: center;
+    gap: 3px;
+    height: 14px;
+    margin-top: -2px;
+    padding: 0 1px;
+}
+.hpanel-gain-input {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    border-radius: 1px;
+    background: rgba(255,255,255,0.10);
+    outline: none;
+    cursor: pointer;
+}
+.hpanel-gain-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 3px;
+    height: 14px;
+    border-radius: 1px;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+}
+.hpanel-gain-input::-moz-range-thumb {
+    width: 3px;
+    height: 14px;
+    border-radius: 1px;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+}
+.hpanel-gain-tag {
+    font-size: 0.55rem;
+    color: #555;
+    min-width: 22px;
+    text-align: right;
+    line-height: 1;
+}
+.hpanel-gain-tag--active {
+    color: var(--accent);
+}
+
+.hpanel-channel {
+    margin-bottom: 4px;
+}
+
+/* Stats popup */
+.hpanel-stats-popup {
+    position: absolute;
+    top: 24px; right: 0;
+    z-index: 20;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    min-width: 260px;
+}
+.hpanel-stats-table {
+    width: 100%;
     font-size: 0.65rem;
+    border-collapse: collapse;
     color: var(--text-secondary);
+}
+.hpanel-stats-table th {
+    text-align: right;
+    padding: 1px 6px;
+    font-weight: 600;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+}
+.hpanel-stats-table th:first-child { text-align: left; }
+.hpanel-stats-table td {
+    padding: 2px 6px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.hpanel-stats-table td:first-child { text-align: left; }
+
+/* Modal overlay */
+.hpanel-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: rgba(0,0,0,0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.hpanel-modal-box {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: min(90vw, 900px);
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.hpanel-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.hpanel-modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 4px;
+}
+.hpanel-modal-close:hover { color: #fff; }
+.hpanel-modal-body {
+    padding: 16px;
 }
 
 /* ── Channel mixer (Color tab) ──────────────── */

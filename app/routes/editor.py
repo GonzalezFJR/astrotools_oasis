@@ -525,6 +525,7 @@ async def api_delete_processed(project_id: str, result_id: str):
 # ── Color composition ────────────────────────────────────────────────
 
 from ..tools.editor_color import (
+    adjust_rgb_levels,
     compose_color,
     delete_color_composite,
     export_image,
@@ -544,6 +545,7 @@ async def api_palettes():
 class ComposeColorBody(BaseModel):
     channels: dict  # {"R": {"source_id":..., "source_type":...}, "G":..., "B":...}
     saturation: float = Field(1.0, ge=0, le=3)
+    contrast: float = Field(1.0, ge=0.1, le=3)
     luminance_id: str | None = None
     luminance_type: str = "stacked"
     luminance_weight: float = Field(0.7, ge=0, le=1)
@@ -561,6 +563,7 @@ async def api_compose_color(project_id: str, body: ComposeColorBody):
             project_id,
             body.channels,
             body.saturation,
+            body.contrast,
             body.luminance_id,
             body.luminance_type,
             body.luminance_weight,
@@ -585,6 +588,42 @@ async def api_delete_composite(project_id: str, composite_id: str):
     return {"deleted": ok}
 
 
+class SaveBody(BaseModel):
+    name: str | None = None
+
+
+@router.post("/api/projects/{project_id}/color/{composite_id}/save")
+async def api_save_composite(project_id: str, composite_id: str, body: SaveBody):
+    from ..tools.editor_project import load_project, save_project
+    project = load_project(project_id)
+    if not project:
+        return {"error": "Proyecto no encontrado"}
+    for c in project.get("color_composites", []):
+        if c["id"] == composite_id:
+            c["saved"] = True
+            if body.name:
+                c["display_name"] = body.name
+            save_project(project)
+            return {"ok": True, "id": composite_id}
+    return {"error": "Composición no encontrada"}
+
+
+@router.post("/api/projects/{project_id}/processing/{result_id}/save")
+async def api_save_processed(project_id: str, result_id: str, body: SaveBody):
+    from ..tools.editor_project import load_project, save_project
+    project = load_project(project_id)
+    if not project:
+        return {"error": "Proyecto no encontrado"}
+    for p in project.get("processed_results", []):
+        if p["id"] == result_id:
+            p["saved"] = True
+            if body.name:
+                p["display_name"] = body.name
+            save_project(project)
+            return {"ok": True, "id": result_id}
+    return {"error": "Resultado no encontrado"}
+
+
 # ── Preview ──────────────────────────────────────────────────────────
 
 
@@ -598,6 +637,22 @@ async def api_color_preview(project_id: str, body: ColorPreviewBody):
     from fastapi.responses import Response
     try:
         jpeg = get_color_preview(project_id, body.composite_id, body.max_size)
+        return Response(content=jpeg, media_type="image/jpeg")
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class AdjustRGBLevelsBody(BaseModel):
+    composite_id: str
+    levels: dict  # {"R": {"zmin": 0.0, "zmax": 1.0}, "G": {...}, "B": {...}}
+    max_size: int = Field(1200, ge=200, le=4000)
+
+
+@router.post("/api/projects/{project_id}/color/adjust-levels")
+async def api_adjust_rgb_levels(project_id: str, body: AdjustRGBLevelsBody):
+    from fastapi.responses import Response
+    try:
+        jpeg = adjust_rgb_levels(project_id, body.composite_id, body.levels, body.max_size)
         return Response(content=jpeg, media_type="image/jpeg")
     except Exception as e:
         return {"error": str(e)}
