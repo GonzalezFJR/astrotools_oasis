@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         try {
-            const result = await apiPost('/api/snr/calculate', data);
+            const result = await apiPost(`${ROOT_PATH}/api/snr/calculate`, data);
             displayResults(result);
         } catch (err) {
             alert('Error en el cálculo: ' + err.message);

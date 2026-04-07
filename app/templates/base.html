@@ -14,13 +14,13 @@
     <!-- Aladin Lite CSS (only loaded on FOV page) -->
     {% block head_extra %}{% endblock %}
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}">
 </head>
 <body>
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg oasis-navbar">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/">
+            <a class="navbar-brand" href="{{ request.scope.get('root_path', '') }}/">
                 <i class="bi bi-stars"></i> Oasis <span class="brand-accent">AstroTools</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -29,13 +29,13 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="/"><i class="bi bi-house"></i> Inicio</a>
+                        <a class="nav-link" href="{{ request.scope.get('root_path', '') }}/"><i class="bi bi-house"></i> Inicio</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/snr"><i class="bi bi-graph-up"></i> SNR</a>
+                        <a class="nav-link" href="{{ request.scope.get('root_path', '') }}/snr"><i class="bi bi-graph-up"></i> SNR</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/fov"><i class="bi bi-aspect-ratio"></i> FOV</a>
+                        <a class="nav-link" href="{{ request.scope.get('root_path', '') }}/fov"><i class="bi bi-aspect-ratio"></i> FOV</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="/editor"><i class="bi bi-stars"></i> AstroEditor</a>
@@ -68,8 +68,10 @@
     <!-- KaTeX -->
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <!-- Root path for JS API calls -->
+    <script>const ROOT_PATH = "{{ request.scope.get('root_path', '') }}";</script>
     <!-- Common JS -->
-    <script src="/static/js/common.js"></script>
+    <script src="{{ request.url_for('static', path='js/common.js') }}"></script>
     {% block scripts %}{% endblock %}
     <script>
         document.addEventListener('DOMContentLoaded', () => {

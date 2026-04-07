@@ -17,7 +17,7 @@
 <!-- Tool cards -->
 <section class="tools-grid">
     <!-- SNR Calculator -->
-    <a href="/snr" class="tool-card-link">
+    <a href="{{ request.scope.get('root_path', '') }}/snr" class="tool-card-link">
         <div class="tool-card">
             <div class="tool-card-icon">
                 <i class="bi bi-graph-up"></i>
@@ -41,7 +41,7 @@
     </a>
 
     <!-- FOV Calculator -->
-    <a href="/fov" class="tool-card-link">
+    <a href="{{ request.scope.get('root_path', '') }}/fov" class="tool-card-link">
         <div class="tool-card">
             <div class="tool-card-icon">
                 <i class="bi bi-aspect-ratio"></i>

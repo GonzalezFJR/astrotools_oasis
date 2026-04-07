@@ -62,7 +62,7 @@
 
     async function loadCatalog(type) {
         try {
-            const data = await apiGet(`/api/catalogs/${type}`);
+            const data = await apiGet(`${ROOT_PATH}/api/catalogs/${type}`);
             catalogData[type] = data;
             const select = document.getElementById('targetSelect');
             select.innerHTML = '';
@@ -118,7 +118,7 @@
         };
 
         try {
-            const result = await apiPost('/api/fov/calculate', data);
+            const result = await apiPost(`${ROOT_PATH}/api/fov/calculate`, data);
             displayFOVResults(result);
             drawFOVOverlay(result);
         } catch (err) {
