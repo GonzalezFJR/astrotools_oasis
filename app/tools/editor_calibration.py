@@ -1,5 +1,12 @@
-"""AstroEditor — Calibration: master frame creation and light calibration."""
+"""AstroEditor — Calibration: master frame creation and light calibration.
 
+Memory-efficient implementation: images are loaded one at a time and combined
+using streaming accumulators (running sum for mean, chunked row-blocks for
+median / sigma-clip).  Peak memory ≈ ``chunk_rows × width × n_frames`` (with
+a configurable chunk size) instead of ``height × width × n_frames``.
+"""
+
+import gc
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -94,48 +101,88 @@ def _combine_frames(
     paths: list[Path],
     method: str = "median",
     sigma: float = 3.0,
+    bias_data: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Combine multiple frames into a single master using the specified method."""
+    """Combine multiple frames into a single master using the specified method.
+
+    Memory-efficient: never loads all frames simultaneously.
+    * mean     — single-pass running sum (peak = 1 frame).
+    * median   — chunked row-block approach (peak = chunk_rows × width × N).
+    * sigma_clip — two-pass chunked (peak = same as median).
+    """
     if not paths:
         raise ValueError("No frames to combine")
 
-    arrays = []
-    for p in paths:
-        arr = _load_image_data(p)
-        arrays.append(arr)
+    # --- determine shape from the first frame ---
+    first = _load_image_data(paths[0])
+    if bias_data is not None:
+        first = first - bias_data
+    shape = first.shape
+    n = len(paths)
 
-    # Check all same shape
-    shape = arrays[0].shape
-    for i, arr in enumerate(arrays[1:], 1):
-        if arr.shape != shape:
-            raise ValueError(
-                f"Frame {paths[i].name} has shape {arr.shape}, "
-                f"expected {shape} (from {paths[0].name})"
-            )
-
-    stack = np.array(arrays)
-
+    # ── MEAN: single-pass running accumulator (peak ≈ 1 frame) ──
     if method == "mean":
-        return np.mean(stack, axis=0)
-    elif method == "median":
-        return np.median(stack, axis=0)
-    elif method == "sigma_clip":
-        return _sigma_clipped_mean(stack, sigma)
-    else:
-        raise ValueError(f"Unknown method: {method}")
+        running_sum = first.copy()
+        del first; gc.collect()
+        for p in paths[1:]:
+            frame = _load_image_data(p)
+            if frame.shape != shape:
+                raise ValueError(f"Frame {p.name} has shape {frame.shape}, expected {shape}")
+            if bias_data is not None:
+                frame = frame - bias_data
+            running_sum += frame
+            del frame; gc.collect()
+        return running_sum / n
+
+    # ── MEDIAN / SIGMA-CLIP: chunked row-block approach ──
+    del first; gc.collect()
+
+    # Choose chunk_rows so that the slab for all N frames fits comfortably.
+    # Target ≈ 256 MB per slab.
+    bytes_per_pixel = 8  # float64
+    target_bytes = 256 * 1024 * 1024
+    chunk_rows = max(1, target_bytes // (shape[1] * n * bytes_per_pixel))
+    chunk_rows = min(chunk_rows, shape[0])  # never exceed total rows
+
+    result = np.empty(shape, dtype=np.float64)
+
+    for row_start in range(0, shape[0], chunk_rows):
+        row_end = min(row_start + chunk_rows, shape[0])
+        slab_h = row_end - row_start
+
+        # Load the chunk from every frame
+        slab = np.empty((n, slab_h, shape[1]), dtype=np.float64)
+        for fi, p in enumerate(paths):
+            frame = _load_image_data(p)
+            if frame.shape != shape:
+                raise ValueError(f"Frame {p.name} has shape {frame.shape}, expected {shape}")
+            if bias_data is not None:
+                slab[fi] = frame[row_start:row_end] - bias_data[row_start:row_end]
+            else:
+                slab[fi] = frame[row_start:row_end]
+            del frame; gc.collect()
+
+        if method == "median":
+            result[row_start:row_end] = np.median(slab, axis=0)
+        elif method == "sigma_clip":
+            result[row_start:row_end] = _sigma_clipped_mean_slab(slab, sigma)
+        else:
+            raise ValueError(f"Unknown method: {method}")
+
+        del slab; gc.collect()
+
+    return result
 
 
-def _sigma_clipped_mean(stack: np.ndarray, sigma: float = 3.0) -> np.ndarray:
-    """Sigma-clipped mean combination."""
-    mean = np.mean(stack, axis=0)
-    std = np.std(stack, axis=0)
+def _sigma_clipped_mean_slab(slab: np.ndarray, sigma: float = 3.0) -> np.ndarray:
+    """Sigma-clipped mean on a (N, H, W) slab."""
+    mean = np.mean(slab, axis=0)
+    std = np.std(slab, axis=0)
     std[std == 0] = 1
-
-    mask = np.abs(stack - mean[np.newaxis]) <= sigma * std[np.newaxis]
+    mask = np.abs(slab - mean[np.newaxis]) <= sigma * std[np.newaxis]
     counts = np.sum(mask, axis=0)
     counts[counts == 0] = 1
-    result = np.sum(stack * mask, axis=0) / counts
-    return result
+    return np.sum(slab * mask, axis=0) / counts
 
 
 def create_master_bias(
@@ -150,7 +197,6 @@ def create_master_bias(
         raise ValueError("No bias frames found in this project")
 
     master = _combine_frames(paths, method, sigma)
-
     master_id = uuid.uuid4().hex[:8]
     master_name = f"master_bias_{master_id}.fits"
     master_dir = _projects_base() / project_id / "masters"
@@ -207,31 +253,18 @@ def create_master_dark(
     if not paths:
         raise ValueError("No dark frames found in this project")
 
-    arrays = [_load_image_data(p) for p in paths]
-
+    # Load master bias once (small: single frame)
+    bias_data = None
     if subtract_bias:
         project = load_project(project_id)
         mb_record = project.get("masters", {}).get("master_bias")
         if mb_record:
             mb_path = _projects_base() / project_id / "masters" / mb_record["filename"]
             if mb_path.exists():
-                master_bias = _load_image_data(mb_path)
-                arrays = [a - master_bias for a in arrays]
+                bias_data = _load_image_data(mb_path)
 
-    shape = arrays[0].shape
-    for i, arr in enumerate(arrays[1:], 1):
-        if arr.shape != shape:
-            raise ValueError(f"Dark frame shape mismatch: {paths[i].name}")
-
-    stack = np.array(arrays)
-    if method == "mean":
-        master = np.mean(stack, axis=0)
-    elif method == "median":
-        master = np.median(stack, axis=0)
-    elif method == "sigma_clip":
-        master = _sigma_clipped_mean(stack, sigma)
-    else:
-        raise ValueError(f"Unknown method: {method}")
+    master = _combine_frames(paths, method, sigma, bias_data=bias_data)
+    del bias_data; gc.collect()
 
     master_id = uuid.uuid4().hex[:8]
     master_name = f"master_dark_{master_id}.fits"
@@ -288,31 +321,18 @@ def create_master_flat(
     if not paths:
         raise ValueError("No flat frames found in this project")
 
-    arrays = [_load_image_data(p) for p in paths]
-
+    # Load master bias once (small: single frame)
+    bias_data = None
     if subtract_bias:
         project = load_project(project_id)
         mb_record = project.get("masters", {}).get("master_bias")
         if mb_record:
             mb_path = _projects_base() / project_id / "masters" / mb_record["filename"]
             if mb_path.exists():
-                master_bias = _load_image_data(mb_path)
-                arrays = [a - master_bias for a in arrays]
+                bias_data = _load_image_data(mb_path)
 
-    shape = arrays[0].shape
-    for i, arr in enumerate(arrays[1:], 1):
-        if arr.shape != shape:
-            raise ValueError(f"Flat frame shape mismatch: {paths[i].name}")
-
-    stack = np.array(arrays)
-    if method == "mean":
-        master = np.mean(stack, axis=0)
-    elif method == "median":
-        master = np.median(stack, axis=0)
-    elif method == "sigma_clip":
-        master = _sigma_clipped_mean(stack, sigma)
-    else:
-        raise ValueError(f"Unknown method: {method}")
+    master = _combine_frames(paths, method, sigma, bias_data=bias_data)
+    del bias_data; gc.collect()
 
     # Normalize
     med = np.median(master)

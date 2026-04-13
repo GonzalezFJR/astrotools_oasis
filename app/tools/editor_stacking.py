@@ -1,5 +1,11 @@
-"""AstroEditor — Stacking: combine aligned frames into a final integrated image."""
+"""AstroEditor — Stacking: combine aligned frames into a final integrated image.
 
+Memory-efficient: uses running accumulators for mean/weighted-mean, and chunked
+row-block processing for median / sigma_clip / winsorized / max / min, so peak
+memory stays bounded regardless of the number of frames.
+"""
+
+import gc
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -15,61 +21,45 @@ from .editor_project import (
 from .editor_calibration import _load_image_data, _save_fits
 
 
-# ── Combination functions ────────────────────────────────────────────
+# ── Slab-level combination helpers (operate on (N, chunk_H, W) slabs) ──
 
-def _sigma_clipped_mean(stack: np.ndarray, sigma: float = 3.0) -> np.ndarray:
-    """Sigma-clipped mean: reject outlier pixels per position."""
-    mean = np.mean(stack, axis=0)
-    std = np.std(stack, axis=0)
+def _sigma_clipped_mean_slab(slab: np.ndarray, sigma: float = 3.0) -> np.ndarray:
+    mean = np.mean(slab, axis=0)
+    std = np.std(slab, axis=0)
     std[std == 0] = 1.0
-    mask = np.abs(stack - mean[np.newaxis]) <= sigma * std[np.newaxis]
+    mask = np.abs(slab - mean[np.newaxis]) <= sigma * std[np.newaxis]
     counts = np.sum(mask, axis=0)
     counts[counts == 0] = 1
-    return np.sum(stack * mask, axis=0) / counts
+    return np.sum(slab * mask, axis=0) / counts
 
 
-def _winsorized_sigma_clip(stack: np.ndarray, sigma: float = 3.0) -> np.ndarray:
-    """Winsorized sigma-clip: replace outliers with boundary values instead of rejecting."""
-    mean = np.mean(stack, axis=0)
-    std = np.std(stack, axis=0)
+def _winsorized_slab(slab: np.ndarray, sigma: float = 3.0) -> np.ndarray:
+    mean = np.mean(slab, axis=0)
+    std = np.std(slab, axis=0)
     std[std == 0] = 1.0
     lo = mean - sigma * std
     hi = mean + sigma * std
-    clipped = np.clip(stack, lo[np.newaxis], hi[np.newaxis])
+    clipped = np.clip(slab, lo[np.newaxis], hi[np.newaxis])
     return np.mean(clipped, axis=0)
 
 
-def _combine_stack(
-    arrays: list[np.ndarray],
-    method: str = "sigma_clip",
-    sigma: float = 3.0,
-    weights: list[float] | None = None,
-) -> np.ndarray:
-    """Combine an array stack with the chosen method."""
-    stack = np.array(arrays, dtype=np.float64)
-
+def _combine_slab(slab: np.ndarray, method: str, sigma: float,
+                  weights: np.ndarray | None = None) -> np.ndarray:
+    """Combine a (N, chunk_H, W) slab with the chosen method."""
     if method == "mean":
-        if weights:
-            w = np.array(weights, dtype=np.float64)
-            w /= w.sum()
-            return np.average(stack, axis=0, weights=w)
-        return np.mean(stack, axis=0)
-
+        if weights is not None:
+            return np.average(slab, axis=0, weights=weights)
+        return np.mean(slab, axis=0)
     elif method == "median":
-        return np.median(stack, axis=0)
-
+        return np.median(slab, axis=0)
     elif method == "sigma_clip":
-        return _sigma_clipped_mean(stack, sigma)
-
+        return _sigma_clipped_mean_slab(slab, sigma)
     elif method == "winsorized":
-        return _winsorized_sigma_clip(stack, sigma)
-
+        return _winsorized_slab(slab, sigma)
     elif method == "max":
-        return np.max(stack, axis=0)
-
+        return np.max(slab, axis=0)
     elif method == "min":
-        return np.min(stack, axis=0)
-
+        return np.min(slab, axis=0)
     else:
         raise ValueError(f"Unknown stacking method: {method}")
 
@@ -88,6 +78,10 @@ def stack_frames(
 ) -> dict:
     """
     Stack aligned (or calibrated) light frames into a single integrated image.
+
+    Memory-efficient: for ``mean`` (with or without weights) uses a single-pass
+    running accumulator (peak ~ 1 frame).  For all other methods uses chunked
+    row-block processing so peak memory ~ chunk_rows x width x N (capped ~256 MB).
 
     Parameters
     ----------
@@ -127,54 +121,84 @@ def stack_frames(
         keep_n = max(2, int(len(scored) * (1 - reject_percent / 100)))
         source_images = [s[0] for s in scored[:keep_n]]
 
-    # Load all frames
-    arrays = []
-    used_images = []
+    # ── Pre-scan: resolve paths, check shapes, compute medians (1 frame at a time) ──
+    valid_images: list[dict] = []
+    valid_paths: list[Path] = []
+    medians: list[float] = []
+    shape = None
+
     for img in source_images:
         fpath = _projects_base() / project_id / source_dir / img["stored_name"]
         if not fpath.exists():
             continue
         data = _load_image_data(fpath)
-        arrays.append(data)
-        used_images.append(img)
+        if shape is None:
+            shape = data.shape
+        elif data.shape != shape:
+            del data; gc.collect()
+            continue
+        medians.append(float(np.median(data)))
+        valid_images.append(img)
+        valid_paths.append(fpath)
+        del data; gc.collect()
 
-    if len(arrays) < 2:
+    n = len(valid_images)
+    if n < 2:
         raise ValueError("Not enough valid frames to stack")
 
-    # Verify same shape
-    shape = arrays[0].shape
-    valid_arrays = []
-    valid_images = []
-    for arr, img in zip(arrays, used_images):
-        if arr.shape == shape:
-            valid_arrays.append(arr)
-            valid_images.append(img)
-
-    if len(valid_arrays) < 2:
-        raise ValueError(f"Not enough frames with matching dimensions ({shape})")
-
-    # Normalize to common median if requested
-    medians = [float(np.median(a)) for a in valid_arrays]
+    # Normalization factors
+    norm_factors = [1.0] * n
     if normalize:
-        target_median = np.median(medians)
+        target_median = float(np.median(medians))
         if target_median > 0:
-            for i in range(len(valid_arrays)):
-                if medians[i] > 0:
-                    valid_arrays[i] = valid_arrays[i] * (target_median / medians[i])
+            norm_factors = [(target_median / m) if m > 0 else 1.0 for m in medians]
 
-    # Compute weights
-    weights = None
+    # Weights
+    w_arr: np.ndarray | None = None
     if weight_by_quality and method == "mean":
         scores = [img.get("quality_score", 1.0) for img in valid_images]
         if all(s > 0 for s in scores):
-            weights = scores
+            w_arr = np.array(scores, dtype=np.float64)
+            w_arr /= w_arr.sum()
 
-    # Stack
-    result = _combine_stack(valid_arrays, method, sigma, weights)
+    # ── MEAN (weighted or not): single-pass running accumulator ──
+    if method == "mean":
+        running_sum = np.zeros(shape, dtype=np.float64)
+        for fi, (fpath, nf) in enumerate(zip(valid_paths, norm_factors)):
+            data = _load_image_data(fpath).astype(np.float64) * nf
+            if w_arr is not None:
+                running_sum += data * w_arr[fi]
+            else:
+                running_sum += data
+            del data; gc.collect()
+        result = running_sum if w_arr is not None else running_sum / n
+        del running_sum; gc.collect()
+
+    else:
+        # ── Chunked row-block approach ──
+        bytes_per_pixel = 8
+        target_bytes = 256 * 1024 * 1024
+        chunk_rows = max(1, target_bytes // (shape[1] * n * bytes_per_pixel))
+        chunk_rows = min(chunk_rows, shape[0])
+
+        result = np.empty(shape, dtype=np.float64)
+
+        for row_start in range(0, shape[0], chunk_rows):
+            row_end = min(row_start + chunk_rows, shape[0])
+            slab_h = row_end - row_start
+            slab = np.empty((n, slab_h, shape[1]), dtype=np.float64)
+
+            for fi, (fpath, nf) in enumerate(zip(valid_paths, norm_factors)):
+                data = _load_image_data(fpath)
+                slab[fi] = data[row_start:row_end].astype(np.float64) * nf
+                del data; gc.collect()
+
+            result[row_start:row_end] = _combine_slab(slab, method, sigma, w_arr)
+            del slab; gc.collect()
 
     # Compute statistics
     stack_stats = {
-        "n_frames": len(valid_arrays),
+        "n_frames": n,
         "method": method,
         "sigma": sigma if method in ("sigma_clip", "winsorized") else None,
         "normalized": normalize,
@@ -189,7 +213,7 @@ def stack_frames(
         "width": int(shape[1]),
         "height": int(shape[0]),
         "snr_estimate": float(np.mean(result) / max(np.std(result), 1e-10)),
-        "frame_medians": medians[:len(valid_arrays)],
+        "frame_medians": medians,
     }
 
     # Save result
@@ -203,7 +227,7 @@ def stack_frames(
     _save_fits(result, stack_path, {
         "IMAGETYP": "Stacked",
         "STACKMET": method,
-        "STACKN": len(valid_arrays),
+        "STACKN": n,
         "STACKNRM": str(normalize),
     })
 
@@ -230,7 +254,7 @@ def stack_frames(
         "timestamp": datetime.utcnow().isoformat(),
         "action": "stack_frames",
         "description": (
-            f"Apilado: {len(valid_arrays)} frames con método {method}"
+            f"Apilado: {n} frames con método {method}"
             f"{' (σ=' + str(sigma) + ')' if method in ('sigma_clip', 'winsorized') else ''}"
             f", resultado: media={stack_stats['result_mean']:.1f}, SNR≈{stack_stats['snr_estimate']:.1f}"
         ),
@@ -242,7 +266,7 @@ def stack_frames(
         "filename": stack_name,
         "thumbnail": thumb,
         "stats": stack_stats,
-        "used_frames": len(valid_arrays),
+        "used_frames": n,
     }
 
 

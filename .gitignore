@@ -27,5 +27,8 @@ env/
 .DS_Store
 Thumbs.db
 
+# Data
+data/
+
 # Docker
 docker-compose.override.yml

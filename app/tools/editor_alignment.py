@@ -16,15 +16,35 @@ from .editor_calibration import _load_image_data, _save_fits
 
 
 def _detect_stars(data: np.ndarray, threshold_sigma: float = 5.0, min_area: int = 5, max_stars: int = 200) -> list[dict]:
-    """Detect stars using simple peak detection with local maxima."""
-    from scipy.ndimage import label, maximum_filter, median_filter
+    """Detect stars using simple peak detection with local maxima.
+
+    For large images the expensive background estimation (median_filter 64)
+    is computed on a downsampled copy and then up-scaled, keeping quality
+    while cutting runtime and memory by up to 16×.
+    """
+    from scipy.ndimage import label, median_filter, zoom
+
+    h, w = data.shape
 
     # Smooth slightly to reduce noise
     smoothed = median_filter(data.astype(np.float64), size=3)
 
-    # Background estimation
-    bg = median_filter(smoothed, size=64)
+    # Adaptive background estimation: downsample if image is large
+    _BG_MAX_DIM = 2048  # max dimension before downsampling
+    ds_factor = max(1, max(h, w) // _BG_MAX_DIM)
+    if ds_factor > 1:
+        small = smoothed[::ds_factor, ::ds_factor]
+        bg_small = median_filter(small, size=max(16, 64 // ds_factor))
+        bg = zoom(bg_small, (h / bg_small.shape[0], w / bg_small.shape[1]), order=1)
+        # Trim/pad if rounding produces slightly different shape
+        bg = bg[:h, :w]
+        del small, bg_small
+    else:
+        bg = median_filter(smoothed, size=64)
+
     subtracted = smoothed - bg
+    del smoothed, bg
+
     std = np.std(subtracted)
     if std == 0:
         return []
@@ -35,6 +55,7 @@ def _detect_stars(data: np.ndarray, threshold_sigma: float = 5.0, min_area: int 
 
     # Label connected components
     labeled, n_features = label(binary)
+    del binary
     if n_features == 0:
         return []
 
@@ -239,7 +260,18 @@ def align_frames(
     discard_rms_threshold: float = 0.0,
     image_ids: list[str] | None = None,
 ) -> dict:
-    """Align all light frames to a reference frame."""
+    """Align all light frames to a reference frame.
+
+    Memory-efficient two-pass approach:
+      Pass 1 — detect stars & compute quality (one frame at a time, keep only
+               star catalogs and quality scores — discard pixel data).
+      Pass 2 — reload each frame one at a time, compute/apply transform, write
+               aligned output, then discard pixel data before the next frame.
+    Peak memory ≈ 2 frames (reference kept in RAM for possible future use,
+    + 1 frame being processed).
+    """
+    import gc
+
     project = load_project(project_id)
     if project is None:
         raise ValueError(f"Project {project_id} not found")
@@ -258,8 +290,8 @@ def align_frames(
     if len(source_images) < 2:
         raise ValueError("Need at least 2 frames to align")
 
-    # Load all data and detect stars
-    frame_data = []
+    # ── Pass 1: detect stars + quality (no pixel data retained) ──
+    frame_meta = []  # list of {img, stars, quality, path}
     for img in source_images:
         fpath = _projects_base() / project_id / source_dir / img["stored_name"]
         if not fpath.exists():
@@ -267,110 +299,117 @@ def align_frames(
         data = _load_image_data(fpath)
         stars = _detect_stars(data, threshold_sigma=threshold_sigma)
         quality = _compute_frame_quality(stars, data)
-        frame_data.append({
+        del data; gc.collect()
+        frame_meta.append({
             "img": img,
-            "data": data,
             "stars": stars,
             "quality": quality,
             "path": fpath,
         })
 
-    if len(frame_data) < 2:
+    if len(frame_meta) < 2:
         raise ValueError("Not enough valid frames to align")
 
     # Select reference frame (highest quality)
     if reference_id:
-        ref_idx = next((i for i, f in enumerate(frame_data) if f["img"]["id"] == reference_id), None)
+        ref_idx = next((i for i, f in enumerate(frame_meta) if f["img"]["id"] == reference_id), None)
         if ref_idx is None:
-            ref_idx = max(range(len(frame_data)), key=lambda i: frame_data[i]["quality"]["score"])
+            ref_idx = max(range(len(frame_meta)), key=lambda i: frame_meta[i]["quality"]["score"])
     else:
-        ref_idx = max(range(len(frame_data)), key=lambda i: frame_data[i]["quality"]["score"])
+        ref_idx = max(range(len(frame_meta)), key=lambda i: frame_meta[i]["quality"]["score"])
 
-    ref_frame = frame_data[ref_idx]
+    ref_meta = frame_meta[ref_idx]
 
-    # Align all frames to reference
+    # ── Pass 2: align frames one at a time ──
     aligned_dir = _projects_base() / project_id / "aligned"
     aligned_dir.mkdir(exist_ok=True)
 
     results = []
     discarded = []
 
-    for i, frame in enumerate(frame_data):
+    for i, fm in enumerate(frame_meta):
+        data = _load_image_data(fm["path"])
+
         if i == ref_idx:
-            # Reference frame: copy as-is
+            # Reference frame: save as-is
             al_id = uuid.uuid4().hex[:8]
-            al_name = f"aligned_{al_id}_{frame['img'].get('filename', 'ref.fits')}"
+            al_name = f"aligned_{al_id}_{fm['img'].get('filename', 'ref.fits')}"
             if not al_name.lower().endswith(('.fits', '.fit', '.fts')):
                 al_name = al_name.rsplit('.', 1)[0] + '.fits'
             al_path = aligned_dir / al_name
 
-            _save_fits(frame["data"], al_path, {
+            _save_fits(data, al_path, {
                 "IMAGETYP": "Aligned Light",
                 "ALIGNREF": "True",
-                "ORIGFILE": frame["img"].get("filename", ""),
+                "ORIGFILE": fm["img"].get("filename", ""),
             })
 
             thumb = generate_thumbnail(al_path, project_id)
 
             results.append({
                 "id": al_id,
-                "original_id": frame["img"]["id"],
+                "original_id": fm["img"]["id"],
                 "filename": al_name,
                 "stored_name": al_name,
                 "frame_type": "aligned_light",
                 "is_reference": True,
-                "n_stars": frame["quality"]["n_stars"],
-                "quality_score": frame["quality"]["score"],
-                "fwhm": frame["quality"]["fwhm_estimate"],
+                "n_stars": fm["quality"]["n_stars"],
+                "quality_score": fm["quality"]["score"],
+                "fwhm": fm["quality"]["fwhm_estimate"],
                 "rms": 0.0,
                 "transform": "identity",
                 "thumbnail": thumb,
                 "metadata": {
                     "format": "FITS",
-                    "width": frame["data"].shape[1],
-                    "height": frame["data"].shape[0],
-                    "filter": frame["img"].get("metadata", {}).get("filter"),
-                    "exposure": frame["img"].get("metadata", {}).get("exposure"),
+                    "width": data.shape[1],
+                    "height": data.shape[0],
+                    "filter": fm["img"].get("metadata", {}).get("filter"),
+                    "exposure": fm["img"].get("metadata", {}).get("exposure"),
                 },
                 "created": datetime.utcnow().isoformat(),
             })
+            del data; gc.collect()
             continue
 
         # Match stars
-        matches = _match_stars(ref_frame["stars"], frame["stars"])
+        matches = _match_stars(ref_meta["stars"], fm["stars"])
         if len(matches) < 3:
             discarded.append({
-                "image_id": frame["img"]["id"],
-                "filename": frame["img"].get("filename", ""),
+                "image_id": fm["img"]["id"],
+                "filename": fm["img"].get("filename", ""),
                 "reason": f"Insufficient star matches ({len(matches)})",
             })
+            del data; gc.collect()
             continue
 
         # Compute transform
-        matrix, rms = _compute_transform(ref_frame["stars"], frame["stars"], matches, method)
+        matrix, rms = _compute_transform(ref_meta["stars"], fm["stars"], matches, method)
         if matrix is None:
             discarded.append({
-                "image_id": frame["img"]["id"],
-                "filename": frame["img"].get("filename", ""),
+                "image_id": fm["img"]["id"],
+                "filename": fm["img"].get("filename", ""),
                 "reason": "Failed to compute transformation",
             })
+            del data; gc.collect()
             continue
 
         # Discard if RMS too high
         if discard_rms_threshold > 0 and rms > discard_rms_threshold:
             discarded.append({
-                "image_id": frame["img"]["id"],
-                "filename": frame["img"].get("filename", ""),
+                "image_id": fm["img"]["id"],
+                "filename": fm["img"].get("filename", ""),
                 "reason": f"RMS too high ({rms:.2f} > {discard_rms_threshold:.2f})",
                 "rms": rms,
             })
+            del data; gc.collect()
             continue
 
         # Apply transform
-        aligned_data = _apply_transform(frame["data"], matrix)
+        aligned_data = _apply_transform(data, matrix)
+        del data; gc.collect()
 
         al_id = uuid.uuid4().hex[:8]
-        al_name = f"aligned_{al_id}_{frame['img'].get('filename', 'frame.fits')}"
+        al_name = f"aligned_{al_id}_{fm['img'].get('filename', 'frame.fits')}"
         if not al_name.lower().endswith(('.fits', '.fit', '.fts')):
             al_name = al_name.rsplit('.', 1)[0] + '.fits'
         al_path = aligned_dir / al_name
@@ -381,22 +420,22 @@ def align_frames(
             "IMAGETYP": "Aligned Light",
             "ALIGNREF": "False",
             "ALIGNRMS": round(rms, 4),
-            "ORIGFILE": frame["img"].get("filename", ""),
+            "ORIGFILE": fm["img"].get("filename", ""),
         })
 
         thumb = generate_thumbnail(al_path, project_id)
 
         results.append({
             "id": al_id,
-            "original_id": frame["img"]["id"],
+            "original_id": fm["img"]["id"],
             "filename": al_name,
             "stored_name": al_name,
             "frame_type": "aligned_light",
             "is_reference": False,
-            "n_stars": frame["quality"]["n_stars"],
+            "n_stars": fm["quality"]["n_stars"],
             "n_matches": len(matches),
-            "quality_score": frame["quality"]["score"],
-            "fwhm": frame["quality"]["fwhm_estimate"],
+            "quality_score": fm["quality"]["score"],
+            "fwhm": fm["quality"]["fwhm_estimate"],
             "rms": rms,
             "transform": matrix_list,
             "method": method,
@@ -405,11 +444,12 @@ def align_frames(
                 "format": "FITS",
                 "width": aligned_data.shape[1],
                 "height": aligned_data.shape[0],
-                "filter": frame["img"].get("metadata", {}).get("filter"),
-                "exposure": frame["img"].get("metadata", {}).get("exposure"),
+                "filter": fm["img"].get("metadata", {}).get("filter"),
+                "exposure": fm["img"].get("metadata", {}).get("exposure"),
             },
             "created": datetime.utcnow().isoformat(),
         })
+        del aligned_data; gc.collect()
 
     # Save to project
     project = load_project(project_id)
@@ -418,7 +458,7 @@ def align_frames(
     project["alignment_params"] = {
         "method": method,
         "use_calibrated": use_calibrated,
-        "reference_id": frame_data[ref_idx]["img"]["id"],
+        "reference_id": frame_meta[ref_idx]["img"]["id"],
         "threshold_sigma": threshold_sigma,
         "discard_rms_threshold": discard_rms_threshold,
     }
@@ -433,7 +473,7 @@ def align_frames(
     return {
         "aligned": len(results),
         "discarded": len(discarded),
-        "reference_id": frame_data[ref_idx]["img"]["id"],
+        "reference_id": frame_meta[ref_idx]["img"]["id"],
         "method": method,
         "images": results,
         "discarded_details": discarded,

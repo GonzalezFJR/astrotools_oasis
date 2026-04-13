@@ -449,6 +449,7 @@
         updateImageTables();
         updateTabEnabledState();
         updateProjectSummaryTable();
+        updateCalibrationUI();
         $fileInput.value = '';
         showToast(`${total} imagen(es) subida(s)`);
     }
@@ -620,6 +621,7 @@
             updateImageTables();
             updateTabEnabledState();
             updateProjectSummaryTable();
+            updateCalibrationUI();
             detailModalInstance.hide();
             showToast(`Imagen reclasificada como ${newType}`);
         } else {
@@ -646,6 +648,7 @@
             updateImageTables();
             updateTabEnabledState();
             updateProjectSummaryTable();
+            updateCalibrationUI();
             showToast('Imagen eliminada');
         }
     }
@@ -993,10 +996,12 @@
     function updateCalibrationCounts() {
         if (!currentProject) return;
         const imgs = currentProject.images || {};
+        const masters = currentProject.masters || {};
 
         const biasCount = (imgs.bias || []).length;
         const darkCount = (imgs.dark || []).length;
         const flatCount = (imgs.flat || []).length;
+        const hasBias = biasCount > 0 || !!masters.master_bias;
 
         document.getElementById('calBiasCount').textContent = `${biasCount} frame${biasCount !== 1 ? 's' : ''}`;
         document.getElementById('calDarkCount').textContent = `${darkCount} frame${darkCount !== 1 ? 's' : ''}`;
@@ -1005,6 +1010,12 @@
         document.getElementById('btnCreateMasterBias').disabled = biasCount < 1;
         document.getElementById('btnCreateMasterDark').disabled = darkCount < 1;
         document.getElementById('btnCreateMasterFlat').disabled = flatCount < 1;
+
+        // Auto-manage "Restar bias" switches: enable & check only if bias data exists
+        const darkSubBias = document.getElementById('calDarkSubBias');
+        const flatSubBias = document.getElementById('calFlatSubBias');
+        if (darkSubBias) { darkSubBias.disabled = !hasBias; if (!hasBias) darkSubBias.checked = false; }
+        if (flatSubBias) { flatSubBias.disabled = !hasBias; if (!hasBias) flatSubBias.checked = false; }
     }
 
     function updateCalibrationStatus() {
